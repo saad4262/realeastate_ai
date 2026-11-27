@@ -37,7 +37,7 @@ export const MINUTE_BATCH = {
   smsBatches: 20,
   automationSlices: 3,
   urgentJobs: 20,
-  /** Full data exports (ADR 0101): one step each, a few seconds to ~25 s; one agency at a time per round. */
+  /** Full data exports (ADR 0104): one step each, a few seconds to ~25 s; one agency at a time per round. */
   bulkJobs: 2,
 } as const;
 
@@ -209,7 +209,7 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
       },
     },
     {
-      // The bulk lane (ADR 0101 phase 3): a member's full data export, one step a job. Last, so it only uses what is left.
+      // The bulk lane (ADR 0104 phase 3): a member's full data export, one step a job. Last, so it only uses what is left.
       name: 'bulkJobs',
       mode: 'drain',
       run: async () => {

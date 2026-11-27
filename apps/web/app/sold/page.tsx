@@ -9,7 +9,7 @@ import { SoldResultRow } from '../../components/sold-row';
 import { ResultsMap } from '../../components/results-map';
 import { NotConnectedPanel, Panel } from '../search/sidebar';
 import { ResultsSearch } from '../../components/results-search';
-import { formatLoc, normalisePlaces, parseLoc, type PlaceRef } from '@repo/core/listings/url';
+import { formatLoc, normalisePlaces, parseLoc, placesPhrase, type PlaceRef } from '@repo/core/listings/url';
 import { PROPERTY_TYPES } from '@repo/core/listings/schema';
 import { SearchBarSkeleton } from '../../components/skeletons';
 import { Refreshing, SortBar, SortingProvider } from '../search/sorting';
@@ -82,7 +82,8 @@ export default async function SoldPage({
   // `radius` is what the search box and /search write; `radiusKm` is what the
   // guide's links have always carried. Both mean the same circle.
   const radiusRaw = params.radius ?? params.radiusKm;
-  const radiusKm = radiusRaw === undefined ? undefined : intParam(radiusRaw, 0);
+  // A place's own distance (its `loc`'s fourth part) wins over the shared radius.
+  const radiusKm = located.km ?? (radiusRaw === undefined ? undefined : intParam(radiusRaw, 0));
   const sort = sortOf(params.sort);
   const months = intParam(params.months, DEFAULT_MONTHS);
   const page = intParam(params.page, 1);
@@ -131,12 +132,14 @@ export default async function SoldPage({
   /** Each extra suburb's centre, from place_cache like the one above. One that cannot be found keeps its name match. */
   const places = located.places
     ? await Promise.all(
-        located.places.map(async (p) => {
-          if (!radiusKm) return p;
+        located.places.map(async ({ km: ownKm, ...p }) => {
+          // Each place at its own distance, or the shared radius.
+          const km = ownKm ?? radiusKm;
+          if (!km) return p;
           try {
             const centre = await cachedPlace([p.suburb, p.state, 'Australia'].filter(Boolean).join(', '));
             const parsed = centre
-              ? nearSchema.safeParse({ lat: centre.latitude, lng: centre.longitude, radiusKm })
+              ? nearSchema.safeParse({ lat: centre.latitude, lng: centre.longitude, radiusKm: km })
               : null;
             return parsed?.success ? { ...p, near: parsed.data } : p;
           } catch {
@@ -229,7 +232,10 @@ export default async function SoldPage({
     ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
     : [suburb, state].filter(Boolean).join(' ');
   const where = several
-    ? `in ${place}${radiusKm ? ` and within ${radiusKm} km of each` : ''}`
+    ? `in ${placesPhrase([
+        ...(suburb ? [{ suburb, km: near?.radiusKm }] : []),
+        ...(places ?? []).map((p) => ({ suburb: p.suburb, km: 'near' in p ? p.near?.radiusKm : undefined })),
+      ])}`
     : suburb
     ? near
       ? `in ${place} and within ${near.radiusKm} km of it`

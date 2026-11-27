@@ -19,7 +19,7 @@ const OWN_AGENCY = [
   'ai_credit_hold',
   // PLATFORM-PLAN 1.20: the agency's own audit log, read by its owners and admins.
   'audit_log',
-  // ADR 0101 phase 3: a member's full data export — the agency's row, read only by the member who asked.
+  // ADR 0104 phase 3: a member's full data export — the agency's row, read only by the member who asked.
   'export_job',
   'office',
   'team',

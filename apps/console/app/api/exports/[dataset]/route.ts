@@ -5,7 +5,7 @@ import { loadActor } from '../../../../lib/load-actor';
 import { actionUserId } from '../../../../lib/auth-account';
 import { apiError } from '@repo/core/http/api-error';
 
-/** Quick export as a CSV download (ADR 0101). Who gets which rows is core's: can() and the screens' scope helpers. */
+/** Quick export as a CSV download (ADR 0104). Who gets which rows is core's: can() and the screens' scope helpers. */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 

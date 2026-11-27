@@ -69,7 +69,7 @@ export function ContactDirectory({
           <p className={styles.sub}>{subtitle}</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          {/* ADR 0101: the rows these filters select, every page; the server scopes it, as it scopes this list. */}
+          {/* ADR 0104: the rows these filters select, every page; the server scopes it, as it scopes this list. */}
           <a href={hrefFor('/api/exports/contacts', query, 1)} className={styles.btn} download>
             Export CSV
           </a>

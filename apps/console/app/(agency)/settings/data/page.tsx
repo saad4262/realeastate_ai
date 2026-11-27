@@ -4,7 +4,7 @@ import { requireConsoleAccess } from '../../../../lib/require-console-access';
 
 export const metadata: Metadata = { title: 'Download your data' };
 
-/** ADR 0101 phase 3: an owner's or admin's full export — the whole agency, as their screens show it. */
+/** ADR 0104 phase 3: an owner's or admin's full export — the whole agency, as their screens show it. */
 export default async function Page({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const { actor } = await requireConsoleAccess('agency');
   const { error } = await searchParams;

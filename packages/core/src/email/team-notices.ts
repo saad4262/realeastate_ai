@@ -823,7 +823,7 @@ export function buildCreditUsageEmail(input: CreditUsageEmailInput): Transaction
   return { kind: 'transactional', to: input.to, from: input.from, subject: heading, html, text, tags: { kind: `credits-${input.level}` } };
 }
 
-// ── A member's full data export is ready (ADR 0101 phase 3) ─────────────────
+// ── A member's full data export is ready (ADR 0104 phase 3) ─────────────────
 
 export type DataExportReadyEmailInput = {
   to: { email: string; name?: string };

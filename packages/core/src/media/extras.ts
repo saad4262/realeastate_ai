@@ -128,12 +128,16 @@ export async function addListingLink(db: Db, listingId: string, raw: string): Pr
 export async function addListingFloorplan(db: Db, listingId: string, storageKey: string, meta: { width?: number | null; height?: number | null } = {}): Promise<{ mediaId: string }> {
   if (!keyBelongsTo(storageKey, { kind: 'listing', id: listingId })) throw new MediaError('That image does not belong to this listing');
   if (!(await describeObject(storageKey))) throw new MediaError('That image was not uploaded — try again');
-  return db.transaction(async (tx) => {
-    const n = await countOf(tx, listingId, 'floorplan');
-    if (n >= MAX_FLOORPLANS) throw new MediaError(`A listing can carry ${MAX_FLOORPLANS} floorplans`);
-    const [row] = await tx.insert(media).values({ listingId, kind: 'floorplan', storageKey, width: meta.width ?? null, height: meta.height ?? null, sortOrder: n }).returning({ id: media.id });
-    return { mediaId: row!.id };
-  });
+  return db.transaction((tx) => recordListingFloorplan(tx, listingId, storageKey, meta));
+}
+
+/** The row half of `addListingFloorplan`, for a caller that has checked the object and holds its own transaction (ADR 0102). */
+export async function recordListingFloorplan(tx: DbOrTx, listingId: string, storageKey: string, meta: { width?: number | null; height?: number | null } = {}): Promise<{ mediaId: string }> {
+  if (!keyBelongsTo(storageKey, { kind: 'listing', id: listingId })) throw new MediaError('That image does not belong to this listing');
+  const n = await countOf(tx, listingId, 'floorplan');
+  if (n >= MAX_FLOORPLANS) throw new MediaError(`A listing can carry ${MAX_FLOORPLANS} floorplans`);
+  const [row] = await tx.insert(media).values({ listingId, kind: 'floorplan', storageKey, width: meta.width ?? null, height: meta.height ?? null, sortOrder: n }).returning({ id: media.id });
+  return { mediaId: row!.id };
 }
 
 /**

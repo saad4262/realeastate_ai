@@ -91,7 +91,7 @@ export async function putDocumentObject(key: string, bytes: Uint8Array, contentT
 }
 
 /**
- * An export part or CSV the SERVER built (ADR 0101 phase 3), under `exports/`. Overwrites: a job step that runs
+ * An export part or CSV the SERVER built (ADR 0104 phase 3), under `exports/`. Overwrites: a job step that runs
  * twice writes the same key again. Never a file a person uploaded, so there is no type to sniff.
  */
 export async function putExportObject(key: string, bytes: Uint8Array, contentType: string): Promise<void> {

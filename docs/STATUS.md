@@ -8,7 +8,7 @@ are `docs/PLATFORM-PLAN.md` (section 14, with progress). Overwrite this file at 
 V1 production-readiness: about 12% (PLATFORM-PLAN 14). Steps 0–2 nearly done; step 3 (backups) next.
 Branches waiting for a PR and merge: `chore/dev-db-and-prod-guard` (production guard + 0001 extensions fix), `docs/platform-plan` (this).
 
-## Agency data export (ADR 0101) — phases 1–3 BUILT on `feat/agency-data-export` (worktree `../realestate_ai-export`), NOT merged, 2026-11-25
+## Agency data export (ADR 0104) — phases 1–3 BUILT on `feat/agency-data-export` (worktree `../realestate_ai-export`), NOT merged, 2026-11-25
 Brief `docs/briefs/agency-data-export.md` (the user's decisions locked). Quick CSV on Customers (+ notes), Listings, Leads, Calendar,
 Pipeline (`/api/exports/[dataset]`). Full export ("Download your data": `/settings/data` owners/admins, `/my-data` agents): migration
 **0109 `export_job` — applied on DEV only (110 migrations); production NOT migrated**; the job queue's `bulk` lane (now run by the minute
@@ -20,6 +20,16 @@ Checked: `pnpm test` (core 2544, AI 462, db 20), typecheck, lint, console AND we
 8/8, console production build on dev): real Storage upload, signed download and 24 h deletion; the ready email through Resend
 to its test inbox, `delivered`. Dev Storage left clean. NOT run: a large agency's timing. Waiting on the user: production backup,
 migration 0109, merge. Privacy policy must mention export.
+**Migration number clash:** `feat/workflow-stop-on-reply` (ADR 0103, worktree `realestate_ai-autom`, not merged) also has a `0109`
+(`0109_workflow_run_task_idx`). Whoever merges second renames theirs to 0110 and its journal idx; its `when` (1795774981727) is
+later than this one's (1795603754789), so drizzle still applies it after this. ADR renumbered 0101 → **0104** (0101–0103 taken on main/branches).
+
+## Listing import: photos from a folder (ADR 0102) — LIVE: merge `8c8a17b` on `main`, all 4 Vercel builds Ready, 2026-11-25
+CSV + a dropped folder of photos, matched by the address in a folder name at any depth (or the listing id); the browser
+shrinks and uploads straight to Storage; every listing says what photos it got (links or folder). No migration.
+Checked: `pnpm test`, typecheck, lint, smoke group (2/2, dev), break-tests, Playwright on the local console against dev
+(Chromium + WebKit: Y18/19/21/22/23/24 pass). NOT run: Firefox, Edge, a real folder drag, Y25 timing (do it live).
+Found (not fixed, ADR 0029's): the dry run takes Google's nearest match for an address it cannot place exactly.
 
 ## Home page search like realestate.com.au (ADR 0099) — LIVE: `main` = `1d3ad71` (ADR 0099 merge `ba6ba16`, then the no-lag fix `501eb4b` + `1d3ad71`), 2026-11-25
 On the user's go: production backup `prod-20261125T065102Z.dump.enc` (145 tables), migration 0108 on production (109 applied,
@@ -97,14 +107,26 @@ On `main` with ADR 0088. Part 2, the office line, is not built. TEST-PLAN CW1–
 - The client: SMS rules, Control Centre 4.6/4.7, triggers 4.4, Microsoft Entra, brand colours, legal details, real listings.
 
 ## Next
-0. Fix the two smoke checks that assume a small database (`paging walks the result set…`, `the page agrees with the database`).
+0. **USER ORDER 2026-11-25 — agency data export.** Brief: `docs/briefs/agency-data-export.md`.
+   Decisions locked: agents AND agency (owner/admin) can export (scoped); full export = all business data including message bodies; photos + documents as real files in the zip. Exclusions: tokens, AI internals, platform logs, consumer-only shortlists, ADR 0083 viewer identity until policy. Start with ADR, then phase 1 Customers + Listings quick CSV. Ask before merge/live.
+1. Fix the two smoke checks that assume a small database (`paging walks the result set…`, `the page agrees with the database`).
    Search box layout fix LIVE: merge `10b4394` (layout shift 0.18 → 0 on findoraaus.com.au, 1280 and 390 px).
-1. Merge `chore/dev-db-and-prod-guard`, then `docs/platform-plan`.
-2. Step 3, backups: a scheduled encrypted off-site `pg_dump` with a missed-dump alert (0.4), then one restore into a scratch project.
-3. Step 4, accounts and alarms (the boss): spend stops, Sentry, Upstash, 2FA; branch protection, gitleaks, Dependabot.
-4. Dev: sign up an agency, then `pnpm db:seed`. The other laptop's `.env.local` to dev.
-5. The user: set `ASSISTANT_OVERVIEW_READ_ONLY=1` on Vercel when ready; run TEST-PLAN CX, CX40 first.
-6. Limits (the user's numbers, still open): today 50 emails per agent and 200 per agency a day. DNS cutover (`docs/DNS-CUTOVER.md`), Sentry project, real phone tests.
+   Typed placeholder examples LIVE: merge `ddd517e`. Smart search LIVE: merge `65419ca`.
+   Distance per suburb (ADR 0099 amended) LIVE: merge `a18b1de`, the user's case checked on findoraaus.com.au (13/13).
+   **Branch `feat/saved-search-kw`: NOT merged, waiting for the user's go.** It carries keywords in saved searches and
+   alerts, the fix for saving a one-suburb search with its own distance (broken on live since `a18b1de`), and the two
+   smoke checks fixed.
+   **Smart search (ADR 0101) — branch `feat/smart-search-rules`, NOT merged, waiting for the user's go.**
+   - Rules read a sentence in the box. The model (Haiku, faked in every test) reads only the leftovers, checked against the
+     user's words.
+   - New: `POST /api/search/understand`, and `kw` on /search. No migration.
+   - Live-tested on dev: 5 real sentences on Haiku (prompt v2), all right, about $0.001 each.
+2. Merge `chore/dev-db-and-prod-guard`, then `docs/platform-plan`.
+3. Step 3, backups: a scheduled encrypted off-site `pg_dump` with a missed-dump alert (0.4), then one restore into a scratch project.
+4. Step 4, accounts and alarms (the boss): spend stops, Sentry, Upstash, 2FA; branch protection, gitleaks, Dependabot.
+5. Dev: sign up an agency, then `pnpm db:seed`. The other laptop's `.env.local` to dev.
+6. The user: set `ASSISTANT_OVERVIEW_READ_ONLY=1` on Vercel when ready; run TEST-PLAN CX, CX40 first.
+7. Limits (the user's numbers, still open): today 50 emails per agent and 200 per agency a day. DNS cutover (`docs/DNS-CUTOVER.md`), Sentry project, real phone tests.
 
 ## Watch
 - Once the guard is merged, a script against production needs `CONFIRM_PRODUCTION=xjklpoyxcvnlhjlxasmv` for that run.

@@ -277,7 +277,7 @@ import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-s
 import { consumerSkillBlocks, listConsumerSkills, setConsumerSkill, usersWithConsumerSkillOff } from '@repo/core/consumer-skills';
 import { dutyRatesDue } from '@repo/core/affordability';
 import { buildRenovationPlan, listingRooms, renovationListing, renovationRulesDue } from '@repo/core/renovation';
-import { addToShortlist, listShortlist, removeFromShortlist, setShortlistNote, shortlistIds } from '@repo/core/shortlist';
+import { addToShortlist, listShortlist, removeFromShortlist, restoreToShortlist, setShortlistNote, shortlistIds } from '@repo/core/shortlist';
 import { listWatches, localClock, runWatchTick, watchProperty } from '@repo/core/watch';
 import { editProfile, forgetProfile, loadProfile } from '@repo/core/profile';
 import { comparables, homeRows, passesVerdictRule, researchData, runResearch, suburbProfile } from '@repo/core/research';
@@ -362,6 +362,10 @@ import {
   createImportFromSheet,
   pickerSession,
   reimportSheet,
+  attachPhotoFolder,
+  signImportPhotos,
+  confirmImportPhotos,
+  waitingFolderPhotos,
   type ImportDeps,
 } from '@repo/core/imports';
 import { agencyReviews, clearAgencyGooglePlace, publicListingReviews, searchGooglePlaces, setAgencyGooglePlace, type PlaceDetails, type PlacesClient } from '@repo/core/reviews';
@@ -1765,39 +1769,30 @@ async function main() {
   });
 
   await check('paging walks the result set without repeating or skipping', async () => {
-    const all = await searchPublicListings(db, { limit: 100 });
-    if (all.length < 2) skip('needs at least two live listings');
+    /**
+     * The first rows one page at a time must be exactly the first rows asked
+     * for at once, in the same order: then no page repeats or skips one.
+     *
+     * It used to treat a 100-row page as "every listing" and fail on any
+     * database with more than 100 live, which says nothing about paging. Now
+     * the walk is the first WALK rows of the real total, whatever its size.
+     */
+    const WALK = 40;
+    const { rows: first, total } = await searchPublicListingsPage(db, { limit: WALK });
+    if (first.length < 2) skip('needs at least two live listings');
+    assert(total >= first.length, `count(*) over() said ${total} but the page itself held ${first.length}`);
 
-    // One per page, so the invariant is exercised whatever the database holds.
-    const seen: string[] = [];
-    let total = -1;
-
-    for (let page = 0; page < all.length; page += 1) {
-      const { rows, total: t } = await searchPublicListingsPage(db, {
-        limit: 1,
-        offset: page,
-      });
-      assert(rows.length === 1, `page ${page + 1} of ${all.length} came back empty`);
-
-      // The total is the whole match, not the page, and does not drift as the
-      // offset moves — it is count(*) over() on the same statement.
-      if (total === -1) total = t;
+    for (let page = 0; page < first.length; page += 1) {
+      const { rows, total: t } = await searchPublicListingsPage(db, { limit: 1, offset: page });
+      assert(rows.length === 1, `page ${page + 1} came back empty with ${total} to walk`);
+      // The total is the whole match, not the page, and does not drift as the offset moves.
       assert(t === total, `total changed from ${total} to ${t} at offset ${page}`);
-
-      const id = rows[0]?.id as string;
-      assert(!seen.includes(id), `listing ${id} appeared on two pages`);
-      seen.push(id);
+      assert(
+        rows[0]?.id === first[page]?.id,
+        `offset ${page} gave ${rows[0]?.id}, but row ${page + 1} of the unpaged page is ${first[page]?.id} — a repeat or a skip`,
+      );
     }
-
-    assert(
-      total === all.length,
-      `count(*) over() said ${total} but an unpaged search returned ${all.length}`,
-    );
-    assert(
-      seen.length === all.length,
-      `walked ${seen.length} rows one page at a time but the set holds ${all.length}`,
-    );
-    return `${all.length} listings, ${all.length} pages, none repeated`;
+    return `${first.length} of ${total} listings walked one page at a time, none repeated or skipped`;
   });
 
   await check('every geocoded listing has a real point', async () => {
@@ -2642,7 +2637,9 @@ async function main() {
   await check('the page agrees with the database', async () => {
     if (!webUp) skip('web app is not running');
     if (!sample) skip('no live listings');
-    const fromDb = (await searchPublicListings(db, { suburb: sample })).length;
+    // The page prints the whole match ("400 results — showing 1–24"), so it is
+    // compared with the database's total, not with one page of rows.
+    const { total: fromDb } = await searchPublicListingsPage(db, { suburb: sample });
     const fromPage = await resultCount(`suburb=${encodeURIComponent(sample)}`);
     assert(
       fromDb === fromPage,
@@ -8242,6 +8239,8 @@ async function main() {
     inRollback(async (t) => {
       const f = await contactFixture(t);
       const [l] = await t.execute<{ id: string }>(sql`select id from listing where property_id = ${f.propertyId} limit 1`);
+      // Live as publishing leaves it: every path to live stamps published_at, and Undo (ADR 0100) reads it.
+      await t.execute(sql`update listing set published_at = coalesce(published_at, now()) where id = ${l!.id}`);
       const mk = async (k: string) => (await t.execute<{ id: string }>(sql`insert into "user" (id, email) values (${randomUUID()}, ${`${k}.${f.tag}@smoke.test`}) returning id`))[0]!.id;
       const a = { userId: await mk('sl-a') };
       const b = { userId: await mk('sl-b') };
@@ -8260,9 +8259,18 @@ async function main() {
       assert((await listShortlist(t, a))[0]!.standing === 'not_advertised', 'withdrawn did not read "not advertised"');
       const refused = await addToShortlist(t, b, l!.id).catch((e: unknown) => e as Error);
       assert(refused instanceof Error && /not available/.test(refused.message), `saving a withdrawn home: ${String(refused)}`);
-      await removeFromShortlist(t, a, l!.id);
+      const savedAt = (await listShortlist(t, a))[0]!.savedAt;
+      const removed = await removeFromShortlist(t, a, l!.id);
       assert((await listShortlist(t, a)).length === 0, 'remove left it');
-      return 'saved once with a cleaned note; B sees nothing and cannot note it; withdrawn → "not advertised", unsaveable; removed';
+      // ADR 0100: Undo puts it back as it was, even though it is withdrawn now; a never-published listing never.
+      assert(removed?.note === 'Big yard, check the train noise.', `removed: ${JSON.stringify(removed)}`);
+      await restoreToShortlist(t, a, l!.id, removed!);
+      const back = await listShortlist(t, a);
+      assert(back.length === 1 && back[0]!.note === removed!.note && back[0]!.savedAt.getTime() === savedAt.getTime(), `undo: ${JSON.stringify(back)}`);
+      await t.execute(sql`update listing set published_at = null where id = ${l!.id}`);
+      const draft = await restoreToShortlist(t, b, l!.id, { note: null, savedAt: new Date() }).catch((e: unknown) => e as Error);
+      assert(draft instanceof Error && /not available/.test(draft.message), `restoring a never-published home: ${String(draft)}`);
+      return 'saved once with a cleaned note; B sees nothing and cannot note it; withdrawn → "not advertised", unsaveable; removed; Undo → back with its note and date; never-published → refused';
     }),
   );
 
@@ -9855,7 +9863,7 @@ async function main() {
     'agency_google_place', 'search_embedding',
     // ADR 0076: which connected mailbox / calendar is active.
     'integration_choice',
-    // ADR 0101 phase 3: a member's full data export.
+    // ADR 0104 phase 3: a member's full data export.
     'export_job',
   ] as const;
   const CHILD_TABLES: [string, string, string][] = [
@@ -9994,7 +10002,7 @@ async function main() {
     return { g, A, B, bIds };
   }
 
-  /** ADR 0101: the ids in a quick-export file, read back with the import's own CSV reader. */
+  /** ADR 0104: the ids in a quick-export file, read back with the import's own CSV reader. */
   const exportedIds = async (t: Db, actor: Actor, dataset: QuickDataset) => {
     const { chunks } = await startQuickExport(t, actor, dataset, { archived: 'all' });
     let csv = '';
@@ -10005,7 +10013,7 @@ async function main() {
     return rows.map((r) => r[headers.indexOf('id')]!).sort();
   };
 
-  await check('a quick export holds exactly what each person’s own screens list, and is in the audit log with its count (ADR 0101)', () =>
+  await check('a quick export holds exactly what each person’s own screens list, and is in the audit log with its count (ADR 0104)', () =>
     inRollback(async (t) => {
       const f = await contactFixture(t);
       await scheduleAppointment(t, f.actor('a1'), f.contacts.p1, { title: 'A1 appraisal', type: 'appraisal', ...slot(2) });
@@ -10292,7 +10300,7 @@ async function main() {
     }),
   );
 
-  group('Data export (ADR 0101)');
+  group('Data export (ADR 0104)');
 
   /**
    * The full export end to end on real SQL, with storage in memory: each member's zip holds what their screens
@@ -11523,6 +11531,114 @@ async function main() {
       const [gone] = await t.execute<{ file: string | null; raws: number }>(sql`select file_text as file, (select count(*)::int from listing_import_row where import_id = ${id} and raw is not null) as raws from listing_import where id = ${id}`);
       assert(gone?.file === null && gone.raws === 0, `after 30 days: ${JSON.stringify(gone)}`);
       return 'a held lease blocks a second worker, a stale one does not; tick finished the dry run; a suspended uploader’s import failed with the reason; file and cells cleared after 30 days';
+    }),
+  );
+
+  // ----------------------------------------- listing import: folder photos (ADR 0102) --
+  group('Listing import: photos from a folder');
+
+  /** No storage: every sign succeeds; an object "exists" unless its key is in `missing`. */
+  const folderDeps = (missing: Set<string> = new Set()) => ({
+    sign: async () => ({ uploadUrl: 'https://storage.fake/upload', token: 'fake' }),
+    describe: async (key: string) => (missing.has(key) ? null : { contentType: 'image/jpeg', bytes: 1000 }),
+  });
+  const FOLDER = [
+    'Listings/Officer/2-6E Main St/1.jpg',
+    'Listings/Officer/2-6E Main St/2.jpg',
+    'Listings/Officer/2-6E Main St/Floor Plan/plan.png',
+    'Listings/3 Golden Wattle Ct Berwick/Photos/a.jpg',
+    'Listings/3 Golden Wattle Ct Berwick/IMG_1.HEIC',
+    'Listings/14 Henry Street/x.jpg',
+    'Listings/99 Unknown Rd/z.jpg',
+    'Listings/.DS_Store',
+  ].map((path) => ({ path, size: 2000 }));
+
+  await check('a dropped folder is matched by address at any depth; the photos upload and each listing says what it got; the file’s links win; dropping again resumes', async () =>
+    inRollback(async (t) => {
+      const x = await importFixture(t);
+      const owner = x.f.actor('owner');
+      const deps = importDeps();
+      const { id } = await createImport(t, owner, { fileName: 'listings.csv', text: x.text, mode: 'live' });
+      await startDryRun(t, owner, id);
+      await driveImport(t, owner, id, deps, ['validated']);
+
+      const rep = await attachPhotoFolder(t, owner, id, FOLDER);
+      // Rows: 2 = AG-1 14 Henry St (has links), 3 = AG-2 unit 2/6E Main St, 4 = AG-3 Golden Wattle, 11 = AG-4 Stranger St.
+      assert(rep.listings === 2 && rep.photos === 4, `matched: ${JSON.stringify(rep)}`);
+      assert(JSON.stringify(rep.linksWin) === '[2]' && JSON.stringify(rep.withoutPhotos) === '[11]', `links win / none: ${JSON.stringify(rep)}`);
+      assert(JSON.stringify(rep.unmatchedFolders) === '["Listings/99 Unknown Rd"]' && rep.skipped.length === 1 && /HEIC/.test(rep.skipped[0]!.reason), `unmatched / skipped: ${JSON.stringify(rep)}`);
+      let v = await getImport(t, owner, id);
+      assert(v.counts.photosLocal === 4 && v.counts.listingsWithPhotos === 3 && v.counts.listingsWithoutPhotos === 1, `counts after drop: ${JSON.stringify(v.counts)}`);
+      const early = await signImportPhotos(t, owner, id, [{ rowId: randomUUID(), path: 'x' }], folderDeps()).then(() => 'signed', (e: unknown) => (e as { code: string }).code);
+      assert(early === 'conflict', `signed before the listings exist: ${early}`);
+
+      await startImport(t, owner, id);
+      await driveImport(t, owner, id, deps, ['done']);
+      v = await getImport(t, owner, id);
+      assert(v.counts.photosLocal === 4 && v.counts.photosDone === 1 && v.counts.photosFailed === 1, `the import touched the folder plan: ${JSON.stringify(v.counts)}`);
+
+      const rows = await t.execute<{ id: string; row_number: number; listing_id: string; photos: { path?: string; status: string }[] }>(sql`select id, row_number, listing_id, photos from listing_import_row where import_id = ${id} and row_number in (3, 4) order by row_number`);
+      const waiting = await waitingFolderPhotos(t, owner, id);
+      assert(JSON.stringify(waiting.map((w) => [w.path.split('/').pop(), w.kind, w.status])) === '[["1.jpg",null,"local"],["2.jpg",null,"local"],["plan.png","floorplan","local"],["a.jpg",null,"local"]]', `waiting: ${JSON.stringify(waiting)}`);
+      const refs = waiting.map((w) => ({ rowId: w.rowId, path: w.path, type: w.kind ? 'image/png' : 'image/jpeg' }));
+      const signed = await signImportPhotos(t, owner, id, refs, folderDeps());
+      assert(signed.length === 4 && signed.every((s) => 'key' in s), `sign: ${JSON.stringify(signed)}`);
+      const keyOf = (path: string) => (signed.find((s) => s.path === path) as { key: string }).key;
+      const missing = new Set([keyOf('Listings/3 Golden Wattle Ct Berwick/Photos/a.jpg')]);
+      assert(/\.png$/.test(keyOf('Listings/Officer/2-6E Main St/Floor Plan/plan.png')), 'a PNG floorplan was keyed as JPEG');
+      const uploaded = signed.map((s) => ({ rowId: s.rowId, path: s.path, key: (s as { key: string }).key, width: 1600, height: 1200 }));
+      const res = await confirmImportPhotos(t, owner, id, { uploaded, failed: [] }, folderDeps(missing));
+      assert(res.done === 3 && res.failed === 1, `confirm: ${JSON.stringify(res)}`);
+      const unitListing = rows[0]!.listing_id;
+      const media = await t.execute<{ kind: string; is_main: boolean; sort_order: number }>(sql`select kind::text as kind, is_main, sort_order from media where listing_id = ${unitListing} order by kind::text, sort_order`);
+      assert(JSON.stringify(media.map((m) => [m.kind, m.is_main, m.sort_order])) === '[["floorplan",false,0],["photo",true,0],["photo",false,1]]', `unit's media: ${JSON.stringify(media)}`);
+      // The same photo confirmed twice (a double click, a second tab) is recorded once.
+      await confirmImportPhotos(t, owner, id, { uploaded: uploaded.slice(0, 1), failed: [] }, folderDeps());
+      const [again] = await t.execute<{ n: number }>(sql`select count(*)::int as n from media where listing_id = ${unitListing}`);
+      assert(again?.n === 3, `a second confirm added a photo: ${again?.n}`);
+
+      // Each listing says what it got; "missing" is the ones with no photo or a failed one.
+      const report = await importReport(t, owner, id);
+      const sum = (n: number) => JSON.stringify(report.find((r) => r.rowNumber === n)?.photoSummary);
+      assert(sum(3) === JSON.stringify({ source: 'folder', total: 3, done: 3, waiting: 0, failed: 0 }), `row 3: ${sum(3)}`);
+      assert(sum(2) === JSON.stringify({ source: 'links', total: 2, done: 1, waiting: 0, failed: 1 }) && sum(11) === JSON.stringify({ source: 'none', total: 0, done: 0, waiting: 0, failed: 0 }), `rows 2 / 11: ${sum(2)} ${sum(11)}`);
+      const missingRows = (await importReport(t, owner, id, { photos: 'missing' })).map((r) => r.rowNumber);
+      assert(JSON.stringify(missingRows) === '[2,4,11]', `missing: ${JSON.stringify(missingRows)}`);
+      assert(/row,status,address,photos_from,photos_in/.test(await importReportCsv(t, owner, id)), 'the CSV report has no photo columns');
+
+      // Dropping the same folder again: what is in stays in, the failed one waits again.
+      const resume = await attachPhotoFolder(t, owner, id, FOLDER);
+      v = await getImport(t, owner, id);
+      assert(resume.photos === 1 && v.counts.photosLocal === 1 && v.counts.listingsWithFailedPhotos === 1, `resume: ${JSON.stringify(resume)} ${JSON.stringify(v.counts)}`);
+      return 'nested folders matched (unit 2-6E, Golden Wattle Ct), links kept for 14 Henry St, HEIC and an unknown folder reported; 3 in (2 photos + floorplan, first is main), 1 missing object failed; double confirm adds nothing; per-listing summary and missing filter right; re-drop waits only the failed one';
+    }),
+  );
+
+  await check('folder photos: only the person running the import; a row or key from elsewhere is refused', async () =>
+    inRollback(async (t) => {
+      const x = await importFixture(t);
+      const a1 = x.f.actor('a1');
+      const deps = importDeps();
+      const { id } = await createImport(t, a1, { fileName: 'mine.csv', text: x.text });
+      await startDryRun(t, a1, id);
+      await driveImport(t, a1, id, deps, ['validated']);
+      const code = (p: Promise<unknown>) => p.then(() => 'ok', (e: unknown) => (e as { code: string }).code);
+      assert((await code(attachPhotoFolder(t, x.f.actor('a2'), id, FOLDER))) === 'not_found', 'another agent attached photos');
+      assert((await code(attachPhotoFolder(t, x.f.actor('viewer'), id, FOLDER))) === 'not_found', 'a read-only member attached photos');
+      assert((await code(attachPhotoFolder(t, x.f.actor('owner'), id, FOLDER))) === 'forbidden', 'the owner ran an agent’s import');
+      assert((await code(attachPhotoFolder(t, a1, id, [{ path: 'a\0b', size: 1 }]))) === 'invalid', 'a bad path was taken');
+      await attachPhotoFolder(t, a1, id, FOLDER);
+      await startImport(t, a1, id);
+      await driveImport(t, a1, id, deps, ['done']);
+      assert((await code(signImportPhotos(t, x.f.actor('owner'), id, [{ rowId: randomUUID(), path: 'x' }], folderDeps()))) === 'forbidden', 'the owner signed for an agent’s import');
+      const [row] = await t.execute<{ id: string }>(sql`select id from listing_import_row where import_id = ${id} and row_number = 3`);
+      const stranger = await signImportPhotos(t, a1, id, [{ rowId: randomUUID(), path: 'Listings/Officer/2-6E Main St/1.jpg' }, { rowId: row!.id, path: 'not/in/the/plan.jpg' }], folderDeps());
+      assert(stranger.every((s) => 'error' in s), `signed something outside the plan: ${JSON.stringify(stranger)}`);
+      const foreignKey = `listings/${randomUUID()}/${randomUUID()}.jpg`;
+      const res = await confirmImportPhotos(t, a1, id, { uploaded: [{ rowId: row!.id, path: 'Listings/Officer/2-6E Main St/1.jpg', key: foreignKey }], failed: [] }, folderDeps());
+      const [m] = await t.execute<{ n: number }>(sql`select count(*)::int as n from media where storage_key = ${foreignKey}`);
+      assert(res.failed === 1 && res.done === 0 && m?.n === 0, `another listing's key was recorded: ${JSON.stringify(res)}`);
+      return 'another agent and read-only: not found; owner: forbidden on an agent’s import (attach and sign); bad path refused; a row of another import and a path outside the plan not signed; a key for another listing failed, nothing recorded';
     }),
   );
 

@@ -121,7 +121,7 @@ export function LeadTable({
                 </>
               )}
             </p>
-            {/* ADR 0101: this tab and filter, every page, as the server scopes the inbox. */}
+            {/* ADR 0104: this tab and filter, every page, as the server scopes the inbox. */}
             <a href={`/api/exports/leads?${new URLSearchParams({ ...(kind ? { kind } : {}), ...(ai ? { ai } : {}) })}`} className={styles.convo} download>
               Export CSV
             </a>

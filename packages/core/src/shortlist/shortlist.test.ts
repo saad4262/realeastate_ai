@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addToShortlist, listShortlist, removeFromShortlist, setShortlistNote, shortlistIds, shortlistState, ShortlistError } from './shortlist';
+import { addToShortlist, listShortlist, removeFromShortlist, restoreToShortlist, setShortlistNote, shortlistIds, shortlistState, ShortlistError } from './shortlist';
 
 describe('the shortlist (ADR 0080, C4 decision 1)', () => {
   it('says what a saved home is now, in the buyer’s terms — never "withdrawn" (decision 3)', () => {
@@ -20,6 +20,7 @@ describe('the shortlist (ADR 0080, C4 decision 1)', () => {
       () => setShortlistNote(nothing, { userId: '' }, 'x', 'n'),
       () => listShortlist(nothing, { userId: '' }),
       () => shortlistIds(nothing, { userId: '' }),
+      () => restoreToShortlist(nothing, { userId: '' }, 'x', { note: null, savedAt: new Date() }),
     ]) {
       await expect(call()).rejects.toBeInstanceOf(ShortlistError);
     }
@@ -27,5 +28,6 @@ describe('the shortlist (ADR 0080, C4 decision 1)', () => {
 
   it('a note that is too long is refused before it is written', async () => {
     await expect(setShortlistNote({} as never, { userId: 'b' }, 'x', 'a'.repeat(501))).rejects.toMatchObject({ code: 'invalid' });
+    await expect(restoreToShortlist({} as never, { userId: 'b' }, 'x', { note: 'a'.repeat(501), savedAt: new Date() })).rejects.toMatchObject({ code: 'invalid' });
   });
 });

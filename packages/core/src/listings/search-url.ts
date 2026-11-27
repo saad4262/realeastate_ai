@@ -8,6 +8,16 @@ import {
   sortSchema,
 } from './listing-schema';
 import type { PublicSearchQuery } from './search-listings';
+export { parseSearchText, type ParsedSearch } from './search-text';
+export {
+  MAX_UNDERSTAND_CHARS,
+  plausiblePrice,
+  SEARCH_UNDERSTAND_FEATURE,
+  understandSearch,
+  verifyUnderstood,
+  type SearchUnderstander,
+  type UnderstoodSearch,
+} from './search-understand';
 
 /**
  * The URL vocabulary of /search, written down in one place.
@@ -40,39 +50,65 @@ export const SEARCH_PARAM_KEYS = [
   'lat',
   'lng',
   'radius',
+  'kw',
 ] as const;
 
 export type SearchParamKey = (typeof SEARCH_PARAM_KEYS)[number];
 
-/** A suburb as a multi-suburb search names it, without a centre (the server finds that). */
-export type PlaceRef = { suburb: string; state?: string; postcode?: string };
+/**
+ * A suburb as a multi-suburb search names it, without a centre (the server finds that).
+ * `km`: the distance around THIS place (per-place distance); without it, the search's shared `radius`.
+ */
+export type PlaceRef = { suburb: string; state?: string; postcode?: string; km?: number };
+
+/** The largest distance a place may carry: the box's own top step. */
+export const MAX_PLACE_KM = 50;
 
 /**
- * One `loc` value: `Pakenham|VIC|3810` (ADR 0099). A pipe never appears in an
- * Australian suburb name, so the three parts need no escaping. State and
- * postcode are optional, as they are for `suburb=`.
+ * One `loc` value: `Pakenham|VIC|3810|10` (ADR 0099). A pipe never appears in
+ * an Australian suburb name, so the parts need no escaping. State, postcode and
+ * the distance around this place are optional, as they are for `suburb=`.
  */
 export function formatLoc(p: PlaceRef): string {
-  return [p.suburb, p.state ?? '', p.postcode ?? ''].join('|').replace(/\|+$/, '');
+  return [p.suburb, p.state ?? '', p.postcode ?? '', p.km ? String(p.km) : ''].join('|').replace(/\|+$/, '');
 }
+
+/** The same place whatever distance it carries: for "is this suburb already picked". */
+export const placeOnly = (p: PlaceRef): string => formatLoc({ ...p, km: undefined });
 
 const placeRefSchema = z
   .object({
     suburb: z.string().trim().min(1).max(120),
     state: auStateSchema.optional(),
     postcode: z.string().trim().regex(/^\d{3,4}$/).optional(),
+    km: z.number().int().min(1).max(MAX_PLACE_KM).optional(),
   })
   .strict();
 
-/** The inverse of `formatLoc`; null for anything that is not a real place. */
+/** The inverse of `formatLoc`; null for anything that is not a real place. A bad distance costs the distance, not the place. */
 export function parseLoc(raw: string): PlaceRef | null {
-  const [suburb, state, postcode] = raw.split('|').map((v) => v.trim());
+  const [suburb, state, postcode, km] = raw.split('|').map((v) => v.trim());
+  const kmNum = Number(km);
   const parsed = placeRefSchema.safeParse({
     suburb,
     state: state ? state.toUpperCase() : undefined,
     postcode: postcode || undefined,
+    km: Number.isInteger(kmNum) && kmNum >= 1 && kmNum <= MAX_PLACE_KM ? kmNum : undefined,
   });
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * The places of a search in a sentence: "Pakenham or Perth and within 10 km of
+ * each" when they share a distance, "Pakenham (+10 km) or Perth (+20 km)" when
+ * each has its own. `fallbackKm` is the search's shared radius.
+ */
+export function placesPhrase(places: { suburb: string; km?: number }[], fallbackKm?: number): string {
+  const kms = places.map((p) => p.km ?? (fallbackKm && fallbackKm > 0 ? fallbackKm : undefined));
+  const same = kms.every((k) => k === kms[0]);
+  const names = places.map((p, i) => (same || !kms[i] ? p.suburb : `${p.suburb} (+${kms[i]} km)`));
+  const list = names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
+  return same && kms[0] ? `${list} and within ${kms[0]} km${places.length > 1 ? ' of each' : ''}` : list;
 }
 
 /**
@@ -108,7 +144,7 @@ const placeKey = (p: { suburb?: string; state?: string; postcode?: string }) =>
  */
 export function normalisePlaces<T extends { suburb?: string; state?: string; postcode?: string; places?: PlaceRef[] }>(
   query: T,
-): T {
+): T & { km?: number } {
   const seen = new Set(query.suburb ? [placeKey(query)] : []);
   const places: PlaceRef[] = [];
   for (const p of query.places ?? []) {
@@ -119,11 +155,13 @@ export function normalisePlaces<T extends { suburb?: string; state?: string; pos
     if (places.length + (query.suburb ? 1 : 0) >= MAX_SEARCH_PLACES) break;
   }
 
-  const out = { ...query };
+  const out: T & { km?: number } = { ...query };
   delete out.places;
   const [only] = places;
   if (!query.suburb && places.length === 1 && only) {
     out.suburb = only.suburb;
+    // The one place's own distance travels with it, so a reader can prefer it to the shared radius.
+    if (only.km) out.km = only.km;
     if (only.state) out.state = only.state;
     else delete out.state;
     if (only.postcode) out.postcode = only.postcode;
@@ -209,14 +247,12 @@ export function searchQueryToParams(query: PublicSearchQuery): URLSearchParams {
   put(params, 'state', query.state);
   put(params, 'postcode', query.postcode);
   putLists(params, {
-    places: query.places?.map(({ suburb, state, postcode }) => ({ suburb, state, postcode })),
+    // Each place at its own distance (its centre's radius), never one shared radius for all.
+    places: query.places?.map(({ suburb, state, postcode, near }) => ({ suburb, state, postcode, km: near?.radiusKm })),
     propertyTypes: query.propertyTypes,
   });
+  for (const k of query.mustMention ?? []) params.append('kw', k);
 
-  // A multi-suburb search carries its radius on each place's centre; the
-  // radius is the same for all of them (one Distance control).
-  const near = query.near ?? query.places?.find((p) => p.near)?.near;
-  if (near && !query.near) put(params, 'radius', near.radiusKm);
   if (query.near) {
     put(params, 'radius', query.near.radiusKm);
     if (!query.suburb && !query.places?.length) {
@@ -260,7 +296,7 @@ export const savedSearchQuerySchema = z
     suburb: z.string().trim().min(1).max(120).optional(),
     state: auStateSchema.optional(),
     postcode: z.string().trim().min(3).max(4).optional(),
-    /** More suburbs beside `suburb` (ADR 0099). The radius applies to each. */
+    /** More suburbs beside `suburb` (ADR 0099). Each may carry its own `km`; otherwise the radius applies. */
     places: z.array(placeRefSchema).min(1).max(MAX_SEARCH_PLACES).optional(),
     channel: listingChannelSchema.optional(),
     /** ADR 0099: the Build tab — new homes only. */
@@ -276,6 +312,8 @@ export const savedSearchQuerySchema = z
     landFrom: z.number().nonnegative().optional(),
     /** Widen beyond the suburb. Meaningless without a suburb or a lat/lng. */
     radiusKm: z.number().positive().max(200).optional(),
+    /** Smart search's keywords (ADR 0101, URL `kw`): each must be in the listing's own words. */
+    mustMention: z.array(z.string().trim().min(2).max(40)).min(1).max(3).optional(),
     lat: z.number().min(-90).max(90).optional(),
     lng: z.number().min(-180).max(180).optional(),
     sort: sortSchema.optional(),
@@ -357,7 +395,13 @@ export function parseSearchParams(params: URLSearchParams): SavedSearchQuery {
     out.propertyType = types[0];
   }
 
-  const saved = normalisePlaces(out as SavedSearchQuery);
+  const keywords = [...new Set(params.getAll('kw').map((k) => k.trim()).filter((k) => k.length >= 2 && k.length <= 40))];
+  if (keywords.length) out.mustMention = keywords.slice(0, 3);
+
+  const { km: onlyKm, ...saved } = normalisePlaces(out as SavedSearchQuery);
+  // One place with its own distance: that distance is the search's radius. Saved
+  // as `radiusKm`, because the stored shape is strict and `km` lives on places only.
+  if (onlyKm && saved.radiusKm === undefined) saved.radiusKm = onlyKm;
 
   // A suburb's own name must never also travel as free text — the text filter
   // is ANDed, so it deletes every neighbouring suburb a radius just added.
@@ -394,6 +438,7 @@ export function savedQueryToPath(query: SavedSearchQuery): string {
   put(params, 'state', query.state);
   put(params, 'postcode', query.postcode);
   putLists(params, query);
+  for (const k of query.mustMention ?? []) params.append('kw', k);
 
   if (query.radiusKm !== undefined) {
     put(params, 'radius', query.radiusKm);
@@ -426,12 +471,12 @@ export function describeSavedQuery(query: SavedSearchQuery): string {
   if (query.channel === 'rent') bits.push('to rent');
   else if (query.channel === 'sale') bits.push('for sale');
 
-  const names = [query.suburb, ...(query.places ?? []).map((p) => p.suburb)].filter(
-    (n): n is string => Boolean(n),
-  );
-  if (names.length > 1) {
-    const where = `in ${listOf(names, 'or')}`;
-    bits.push(query.radiusKm ? `${where} and within ${query.radiusKm} km of each` : where);
+  const placeList = [
+    ...(query.suburb ? [{ suburb: query.suburb, km: query.radiusKm }] : []),
+    ...(query.places ?? []).map((p) => ({ suburb: p.suburb, km: p.km ?? query.radiusKm })),
+  ];
+  if (placeList.length > 1) {
+    bits.push(`in ${placesPhrase(placeList)}`);
   } else if (query.suburb) {
     bits.push(query.radiusKm ? `in ${query.suburb} and within ${query.radiusKm} km` : `in ${query.suburb}`);
   } else if (query.radiusKm) {
@@ -445,6 +490,7 @@ export function describeSavedQuery(query: SavedSearchQuery): string {
     const amount = query.priceTo.toLocaleString('en-AU');
     bits.push(query.channel === 'rent' ? `under $${amount} a week` : `under $${amount}`);
   }
+  if (query.mustMention?.length) bits.push(`with ${listOf(query.mustMention.map((k) => `"${k}"`), 'and')}`);
 
   return bits.join(' ');
 }
@@ -458,24 +504,6 @@ function listOf(items: string[], word: 'or' | 'and'): string {
 
 /** The Distance control's steps, in km. A typed distance snaps to the nearest one. */
 export const DISTANCE_STEPS_KM = [2, 5, 10, 20, 50] as const;
-
-/**
- * "within 10 km of Pakenham", "10km from Berwick", "5 kms around 3810".
- *
- * Read in the box, without the AI, so the commonest sentence a buyer types
- * works as a plain search (ADR 0099). Returns the snapped distance and the
- * place words left to look up; null when the text is not that sentence.
- */
-export function parseDistancePhrase(text: string): { km: number; place: string } | null {
-  const m = text.match(
-    /^\s*(?:within\s+)?(\d{1,3}(?:\.\d+)?)\s*(?:km|kms|kilomet(?:er|re)s?)\s+(?:of|from|around|near)\s+(.+?)\s*$/i,
-  );
-  if (!m?.[1] || !m[2]) return null;
-  const typed = Number(m[1]);
-  if (!(typed > 0)) return null;
-  const km = DISTANCE_STEPS_KM.reduce((a, b) => (Math.abs(b - typed) < Math.abs(a - typed) ? b : a));
-  return { km, place: m[2] };
-}
 
 /**
  * "10 mins walk from …": travel time, which we have no data for (ADR 0099).

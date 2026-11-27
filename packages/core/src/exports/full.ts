@@ -20,7 +20,7 @@ import type { ReminderDeps } from '../appointments/reminders';
 import { BOM, datasetPages, ExportError, EXPORT_PAGE, iso, line, type Page, type QuickDataset } from './quick';
 
 /**
- * Full export (ADR 0101 phase 3): everything a member may see, as CSVs in `data.zip` plus the real photos and
+ * Full export (ADR 0104 phase 3): everything a member may see, as CSVs in `data.zip` plus the real photos and
  * documents in ~40 MB parts. Built by the job queue's bulk lane one step per job, each step enqueuing the next;
  * the member is re-checked at every step. Parts live under `exports/` in the private documents bucket for 24 hours.
  */

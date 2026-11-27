@@ -1,4 +1,4 @@
-# 0101 — Agency data export: quick CSV, then a full zip
+# 0104 — Agency data export: quick CSV, then a full zip
 
 **Status:** accepted 2026-11-25 (the user's decisions in `docs/briefs/agency-data-export.md`). Phases 1, 2 and 3 built (phase 3's migration 0109 on dev only).
 

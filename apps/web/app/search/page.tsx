@@ -10,6 +10,7 @@ import { Refreshing, SortBar, SortingProvider } from './sorting';
 import { NearbySuburbsPanel, NotConnectedPanel, TopAgentsPanel } from './sidebar';
 import {
   normalisePlaces,
+  placesPhrase,
   parseLoc,
   parseSearchParams,
   savedQueryToPath,
@@ -128,7 +129,8 @@ export default async function SearchPage({
       .filter((p): p is PlaceRef => p !== null),
   });
   const { suburb, state, postcode } = located;
-  const radiusParam = one('radius');
+  // A place's own distance (its `loc`'s fourth part) wins over the shared radius.
+  const radiusParam = located.km ? String(located.km) : one('radius');
 
   let near = nearOf(one('lat'), one('lng'), radiusParam);
 
@@ -186,14 +188,16 @@ export default async function SearchPage({
   const radiusKm = Number(radiusParam);
   const places: SearchPlace[] | undefined = located.places
     ? await Promise.all(
-        located.places.map(async (p): Promise<SearchPlace> => {
-          if (!(radiusKm > 0)) return p;
+        located.places.map(async ({ km: ownKm, ...p }): Promise<SearchPlace> => {
+          // Each place at its own distance, or the shared radius.
+          const km = ownKm ?? (radiusKm > 0 ? radiusKm : undefined);
+          if (!km) return p;
           try {
             const centre = await cachedPlace(
               [p.suburb, p.state, p.postcode, 'Australia'].filter(Boolean).join(', '),
             );
             const parsed = centre
-              ? nearSchema.safeParse({ lat: centre.latitude, lng: centre.longitude, radiusKm })
+              ? nearSchema.safeParse({ lat: centre.latitude, lng: centre.longitude, radiusKm: km })
               : null;
             return parsed?.success ? { ...p, near: parsed.data } : p;
           } catch {
@@ -230,6 +234,8 @@ export default async function SearchPage({
 
   const query: PublicSearchQuery = {
     text,
+    // Smart search's keywords (ADR 0101): each must be in the listing's own words.
+    mustMention: allParams.getAll('kw').map((k) => k.trim().slice(0, 40)).filter(Boolean).slice(0, 3),
     channel: channelOf(one('channel')),
     newBuild: one('new') === '1' || undefined,
     bedrooms: num(one('beds')),
@@ -252,13 +258,13 @@ export default async function SearchPage({
   };
 
   /** "Pakenham, Berwick or Officer" when several were picked (ADR 0099). */
-  const names = [suburb, ...(places ?? []).map((p) => p.suburb)].filter(Boolean) as string[];
-  const severalPlaces =
-    names.length > 1
-      ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}${
-          radiusKm > 0 ? ` and within ${radiusKm} km of each` : ''
-        }`
-      : null;
+  const placeList = [
+    ...(suburb ? [{ suburb, km: near?.radiusKm }] : []),
+    ...(places ?? []).map((p) => ({ suburb: p.suburb, km: p.near?.radiusKm })),
+  ];
+  const severalPlaces = placeList.length > 1 ? placesPhrase(placeList) : null;
+  /** Every picked suburb, so the sidebar does not suggest one already in the search. */
+  const names = placeList.map((p) => p.suburb);
   const place = severalPlaces ?? [suburb, state, postcode].filter(Boolean).join(' ');
 
   /** A link to another page of this same search, keeping every other filter. */

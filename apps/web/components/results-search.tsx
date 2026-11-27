@@ -23,9 +23,12 @@ export function ResultsSearch({ sold = false }: { sold?: boolean }) {
   const single = get('suburb')
     ? [{ suburb: get('suburb'), state: get('state') || undefined, postcode: get('postcode') || undefined }]
     : [];
+  // A link from before per-place distance carries one shared `radius`: each suburb takes it as its own.
+  const shared = Number(get('radius') || get('radiusKm')) || undefined;
+  const hasPoint = !!(get('lat') && get('lng'));
   const chips: Chip[] = [...single, ...params.getAll('loc').map(parseLoc)]
     .filter((p): p is PlaceRef => p !== null)
-    .map((p) => ({ ...p, label: label(p) }));
+    .map((p) => ({ ...p, km: p.km ?? (hasPoint ? undefined : shared), label: label(p) }));
 
   const lat = Number(get('lat'));
   const lng = Number(get('lng'));
@@ -50,6 +53,7 @@ export function ResultsSearch({ sold = false }: { sold?: boolean }) {
       priceTo: get('priceTo'),
     },
     sort: get('sort') || undefined,
+    keywords: params.getAll('kw'),
   };
 
   return <HomeSearch key={params.toString()} variant="bar" start={start} />;

@@ -3,7 +3,7 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
-## 2026-11-25 (evening) — Claude Code (Mac) — ADR 0101 agency data export, phase 1
+## 2026-11-25 (evening) — Claude Code (Mac) — ADR 0104 agency data export, phase 1
 
 - The user asked whether agencies and agents can download their data as CSV; I proposed quick + full export and three questions.
   Answers (via Cursor brief `docs/briefs/agency-data-export.md`): agents and admins both, scoped; full bodies; real files in the zip.
@@ -43,6 +43,134 @@ passes ~10 entries, move the older ones to a new archive file.
   first-visit compile cancelled downloads, so the run uses `next start`. 8/8 on the 15th run.
 - Failed runs left 21 export files in dev Storage (their agencies already gone); deleted, `exports/` now empty, no e2e files left.
 
+## 2026-11-25 (evening) — Claude Code (Mac) — listing import: photos from a folder (ADR 0102, core)
+
+- The user: importing 1,000 listings by CSV left every photo to upload by hand. Researched how bulk tools do it (Shopify
+  image apps, Ecwid, WooCommerce, Easy Property Listings REAXML): a data file plus a photo folder matched by name. Decided
+  with the user: drop the agency's existing folders as they are; match the address in a folder name at any depth (the
+  user's addition), never guess; shrink in the browser to 2048 px JPEG; upload straight to Storage. And (the user) every
+  listing must say what photos it got, from links or a folder.
+- Branch `feat/import-photo-folder` (worktree `../realestate_ai-photofolder`, from `origin/main` `bb453af`), NOT merged.
+  `imports/folder-match.ts` (pure, 10 unit tests), `imports/folder-photos.ts` (attach / sign / confirm),
+  `recordListingPhoto` / `recordListingFloorplan` split out of the add functions; the dry run now writes link entries;
+  per-listing `photoSummary`, `photos: 'missing'` filter, new counts and CSV columns. One console line fixed for the type.
+- Checks: `pnpm typecheck` (11/11), `pnpm lint` (0 errors), `pnpm test` (core 2531, AI 462), smoke group "Listing import: photos from a folder"
+  (2/2 on dev, in rollback). Break-tests red: 3 in the matcher (unit), 3 in the flow (smoke).
+- Then (the user): build the screens too, test in a browser, merge and deploy. `folder-photos.tsx` (folder card, upload
+  loop with Pause / Carry on / retry, "Photos by listing"), actions, `waitingFolderPhotos`; sign takes the file type, confirm
+  the size. Playwright on a local console (port 3011) against dev, as the Harbour (TEST) owner (re-seeded on dev with
+  `test-accounts.ts`): Chromium and WebKit pass Y18, Y19, Y21, Y22, Y23, Y24; DB: right counts, one main, 2560 px, folder
+  order. Not run: Firefox (Playwright's build will not start on this macOS), Edge, a real drag, Y25 (local actions cross to
+  Sydney). Test listings on dev: "(TEST) Folder import: …", withdrawn, external ids cleared.
+- Found, not fixed: the dry run accepted Google's nearest match for made-up template addresses ("2/6E Main St, Officer" →
+  "34 Station St, Officer"). ADR 0029 says ✗ "Check the address". Raised with the user.
+- On the user's go: merged onto `d3dd718` as `8c8a17b` (main had moved once; re-merged and re-checked: typecheck, `pnpm test`
+  core 2574 / AI 466, lint, full console and web builds, all exit 0); pushed; all 4 Vercel production builds Ready. No migration.
+  Not tried on production: an import with a folder (it would write listings into a real agency).
+  ADR numbered 0102: 0100 and 0101 are taken on other branches.
+
+## 2026-11-25 (afternoon) — Cursor handoff — USER ORDER: agency data export (decisions locked)
+
+- User answered Claude Code's export questions: agents AND agencies can export; full export includes
+  everything (message bodies too); photos and documents as real files in the zip, done properly.
+- Scope still applies: an agent only their records; owner/admin the whole agency. Hard exclusions stay
+  (tokens, AI internals, platform logs, consumer-only shortlists, ADR 0083 viewer identity until policy).
+- Brief for Claude Code: `docs/briefs/agency-data-export.md`. Next: write ADR, then phase 1 Customers +
+  Listings quick CSV. Ask before merge / production / live. Privacy policy mention before real customers.
+
+## 2026-11-25 (night, last) — Claude Code (Mac) — saved searches and alerts keep keywords; two smoke checks fixed
+
+- Branch `feat/saved-search-kw` (from `8c8a17b`, which includes another session's ADR 0102).
+- **Found and fixed: a live bug from `a18b1de`.** A one-suburb search with its own distance (`loc=Pakenham|VIC||10`)
+  could not be saved as an alert: `normalisePlaces` left `km` on the query, and the strict saved shape refused it.
+  The one place's km now becomes the saved `radiusKm`. Several places keep their own `km`.
+- `kw` in saved searches and alerts, as `mustMention`, at most 3:
+  - read from the URL and written back by `savedQueryToPath`;
+  - shown in the alert's words ('... with "pool"');
+  - passed to the search by `toRuntimeQuery`.
+- `searchQueryToParams` (chat links, run queries) now writes each place's own km from its centre, not one shared
+  radius, and writes the keywords.
+- Smoke, both rewritten to check what they claim on any size of database:
+  - "paging walks the result set" walks the first 40 of the real total and compares each row with the unpaged page;
+  - "the page agrees with the database" compares the page's total with the database's total, not with one page of rows.
+  - Search + Consumer site: 32 passed, 0 failed.
+  - Break-tests: offset ignored → paging red; the page's total off by one → "page agrees" red.
+- Checked: `pnpm test` (core 2580, ai 466, web 7) and the full web build. The build needed a `pnpm install` for the
+  new web vitest config that came in from main.
+
+## 2026-11-25 (night, later) — Claude Code (Mac) — smart search live; a distance per suburb
+
+- Smart search went live on the user's go.
+  - Merge `65419ca`; the users build Ready.
+  - One production call answered in 1.86 s, correctly.
+- The user, with screenshots: "10 km pakenham", then "20 km perth" set ONE distance, so both became 20 km. They asked
+  for each suburb's own distance.
+- Branch `feat/per-place-distance` (from `65419ca`):
+  - `loc` takes a fourth part, km;
+  - `placesPhrase` writes "Pakenham (+10 km) or Perth (+20 km)";
+  - /search, /sold and `toRuntimeQuery` (alerts) use each place's km, falling back to the shared radius;
+  - each chip has its own distance select, and the Distance control sets all or says "Different per suburb";
+  - typing a picked suburb with a new distance updates that chip.
+- Two bugs found and fixed on the way:
+  - The field's `<label>` would have taken the first chip's select as its control. It is now tied to the input by id.
+  - The input was read-only during a place lookup, so fast typing lost keys ("20 km perth" became "perth" and then
+    Perthville). Now it is read-only only while navigating.
+- Checked:
+  - unit tests;
+  - break-tests: km dropped from `loc`, and alerts ignoring a place's km. Both went red;
+  - full web build;
+  - headless Chromium: the user's exact case, including typing during the lookup, 13/13; smart 11/11; AI 10/10
+    (model faked); layout shift 0 at 1280 and 390 px.
+- Live model spend: one check script had no fake route and made 1 real call ($0.0011). The script now fakes the
+  route. Total so far: 16 calls, $0.0183.
+- On the user's go: merged as `a18b1de`. The new code was served in about 100 s. The same 13 checks passed on
+  findoraaus.com.au (model route faked, no production AI call).
+
+## 2026-11-25 (night, late) — Claude Code (Mac) — smart search: rules first, AI for the rest (ADR 0101)
+
+- The user asked for search that reads a sentence the way realestate.com.au's AI search does. Research came from
+  launch coverage; the site itself refused automated fetches, so it was not visited. What it showed:
+  - natural-language search went to everyone in Dec 2025;
+  - a conversational beta followed in Feb 2026;
+  - REA calls it "a partner, not a replacement, for search filters";
+  - 72% of users refine at least once.
+
+  The user approved "mix both" and the build order.
+- Branch `feat/smart-search-rules` (from `bb453af`).
+  - **Part 1** (`f9ad59f`): `parseSearchText` in core reads distance, rooms, price, type, rent and "new", and leaves the
+    place text. The box offers the reading as the first option: Enter sets it, Search sets it and searches.
+    It replaces `parseDistancePhrase`.
+  - **Part 2**:
+    - core `verifyUnderstood` keeps a model's number only if the sentence has it, keeps a phrase only if the user typed
+      its words, and lets the rules win;
+    - packages/ai `search-understand` runs on the summary tier, metered as `search:understand`;
+    - `POST /api/search/understand` has a per-IP and a daily limit, the AI budget, a day's cache and a 4 s timeout;
+    - the box shows ✦ keywords and "Not searchable yet: …" on the Distance line;
+    - `kw` on /search matches the headline or description;
+    - the guide toggle is renamed "Guide chat".
+  - **Part 3**: refining from the results bar is the same box ("make it 4 bed", "add clyde").
+- Checked:
+  - unit tests: core 2557, ai 466;
+  - break-tests: the number guard, the budget route list, the `kw` SQL, the public-route guard, and the parser's
+    boundary and postcode guards. All went red, then green;
+  - full `pnpm --filter @repo/web build`;
+  - headless Chromium on dev with the model route faked: smart 7/7, AI 10/10 (including AI off → keyword search), and
+    refine. No live model call was made.
+- Live model test, on the user's OK: 5 sentences through the dev route on real Haiku.
+  - v1 read places, a misspelt suburb, rent, keywords and the asks correctly, and ignored an injection.
+  - Three weaknesses showed up, all of them would return no results:
+    - "double garage" also became a keyword;
+    - "near the beach" became a keyword;
+    - the injection's "$50" became a price.
+  - Fixed in **prompt v2** plus core:
+    - a keyword or ask must be in the rules' raw leftover (`rest`);
+    - prices must be plausible (a sale at least $10k, rent at most $20k a week);
+    - nearness goes to "not searchable".
+  - The route now caches the RAW model answer, keyed on the prompt version, and core checks it after the cache.
+  - All 5 were right on v2.
+  - Totals: 15 calls, $0.0172, model about 1.4 s. The rate limit (10 a minute) was seen working.
+- NOT done: saved searches and alerts carrying `kw`.
+
 ## 2026-11-25 (later still) — Claude Code (Mac) — the empty search box types out examples
 
 - The user asked for a placeholder that types and changes, as on realestate.com.au. Branch `feat/typed-placeholder` (from
@@ -52,6 +180,8 @@ passes ~10 entries, move the older ones to a new archive file.
 - Headless Chromium on dev: 23 distinct placeholders in 7 s, 87 DOM changes in the card and every one the placeholder (0 other);
   typing freezes it, clearing brings it back, Address types an address, a chip shows "Add another suburb", reduced motion is
   static. Layout shift still 0, the box checks still pass; full `pnpm --filter @repo/web build` green.
+- On the user's go: merged onto `86cef72` (another session's ADR 0100, merged cleanly) as `ddd517e`; that merge built and
+  tested locally first (web build green, `pnpm test` green); all 4 Vercel builds Ready; the same 7 checks pass on findoraaus.com.au.
 
 ## 2026-11-25 (late night) — Claude Code (Mac) — Sold Filters live; the search box stops moving the page
 

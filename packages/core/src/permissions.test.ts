@@ -1228,7 +1228,7 @@ describe('deal commission', () => {
   });
 });
 
-/** ADR 0101: every member may download what they can see; the rows are narrowed by `*:read_all`, not here. */
+/** ADR 0104: every member may download what they can see; the rows are narrowed by `*:read_all`, not here. */
 describe('data export', () => {
   const m = (membershipRole: Actor['membershipRole']): Actor => ({ userId: 'u', agencyId: agencyA, membershipRole });
   const res = { type: 'agency', agencyId: agencyA };

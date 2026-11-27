@@ -9,7 +9,7 @@ const STATUS: Record<string, string> = { queued: 'Waiting to start', building: '
 const size = (b: number) => (b >= 1_048_576 ? `${(b / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 
 /**
- * "Download all my data" (ADR 0101 phase 3), the same page on both consoles. Only the member's own exports are
+ * "Download all my data" (ADR 0104 phase 3), the same page on both consoles. Only the member's own exports are
  * listed, and each part is signed on click by /api/exports/full — never a stored link.
  */
 export async function DataExportPage({ actor, page, error }: { actor: Actor; page: '/settings/data' | '/my-data'; error?: string }) {

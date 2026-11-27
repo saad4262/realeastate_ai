@@ -1,4 +1,4 @@
--- ADR 0101 phase 3: a member's full data export. A new table only: nothing existing is locked or rewritten.
+-- ADR 0104 phase 3: a member's full data export. A new table only: nothing existing is locked or rewritten.
 SET LOCAL lock_timeout = '1s';--> statement-breakpoint
 CREATE TABLE "export_job" (
 	"id" uuid PRIMARY KEY DEFAULT uuid_v7() NOT NULL,

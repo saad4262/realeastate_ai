@@ -11,7 +11,7 @@ import { requireActionUserId } from './auth-account';
 const PAGES = ['/settings/data', '/my-data'] as const;
 
 /**
- * "Prepare my data" (ADR 0101 phase 3). The actor comes from the session; can('data:export'), the one-at-a-time
+ * "Prepare my data" (ADR 0104 phase 3). The actor comes from the session; can('data:export'), the one-at-a-time
  * rule and the daily limit are core's. A refusal comes back to the page as a message.
  */
 export async function requestExportAction(page: string): Promise<void> {

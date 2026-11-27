@@ -88,7 +88,7 @@ export async function CalendarPage({
               : "Your appointments and the team meetings you are on. Book a client appointment from a contact's Calendar tab."}
           </p>
         </div>
-        {/* ADR 0101: past and upcoming, as the server scopes this calendar. */}
+        {/* ADR 0104: past and upcoming, as the server scopes this calendar. */}
         <a href="/api/exports/appointments" className={contactStyles.btn} download>
           Export CSV
         </a>

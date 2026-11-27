@@ -208,7 +208,7 @@ export type Action =
   /** See who looked at listings (ADR 0083). Any member; which listings is narrowed by `listing:read_all`. */
   | 'listing_activity:read'
   /**
-   * Download the agency's data as CSV (ADR 0101): any member, and what they get is what their screens show them
+   * Download the agency's data as CSV (ADR 0104): any member, and what they get is what their screens show them
    * (an agent's own book, an admin's whole agency). Not in PLATFORM_READ: a platform view never bulk-downloads.
    */
   | 'data:export'

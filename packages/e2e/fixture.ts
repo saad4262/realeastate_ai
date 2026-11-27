@@ -34,7 +34,7 @@ async function authAdmin(path: string, init: RequestInit) {
   return res.status === 204 ? null : res.json().catch(() => null);
 }
 
-async function person(sql: postgres.Sql, email: string): Promise<Person> {
+export async function person(sql: postgres.Sql, email: string): Promise<Person> {
   const made = (await authAdmin('users', { method: 'POST', body: JSON.stringify({ email, password: PASSWORD, email_confirm: true }) })) as { id: string };
   await sql`insert into "user" (id, email, name) values (${made.id}, ${email}, ${email.split('@')[0]!}) on conflict (id) do nothing`;
   return { id: made.id, email };

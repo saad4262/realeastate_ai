@@ -772,6 +772,14 @@ Download the template**) and make a copy to edit. In a spreadsheet, save as **CS
 | Y15 | Upload the same file twice | A message says you uploaded this same file on <date>; the check shows its rows as duplicates. |
 | Y16 | Upload a file with more than 5,000 rows, or one that is not a CSV | A plain error; nothing is created. |
 | Y17 | Put `=HYPERLINK("http://example.com")` as a photo link, then download the row report and open it in Excel | The cell shows the text, starting with an apostrophe. It is **not** a live formula. |
+| Y18 | Make a folder `Listings/Officer/2-6E Main St/` with 3 photos and a `Floor Plan/plan.png`, and `Listings/3 Golden Wattle Ct Berwick/Photos/` with 2. Upload a CSV with those two addresses and no photo links, check it, then choose the `Listings` folder | Both listings are matched, 5 photos and 1 floorplan. Nothing is uploaded yet. |
+| Y19 | Import, and keep the tab open | The photos upload with a progress bar. Each listing shows "N in". On the public listing, the first photo is the main one and the floorplan is under Floorplans. |
+| Y20 | Repeat in **Chrome, Edge, Safari and Firefox**, once with the button and once by dragging the folder (dragging and Firefox were not run by Claude Code, 2026-11-25) | The same result in each, or a clear "use the button" in a browser that cannot take a dragged folder. |
+| Y21 | Add a folder `99 Unknown Rd/`, an iPhone `.HEIC` photo, and 25 photos in one listing's folder, then drop again | "Folders not matched: 99 Unknown Rd", the HEIC is listed with "save it as JPEG first", photos 21–25 are "not used: a listing carries 20 photos". |
+| Y22 | During the upload, close the tab. Reopen the import | "N photos still on your computer: drop the same folder to carry on". Dropping it uploads only what is left. Nothing is doubled. |
+| Y23 | A row with photo links in the CSV, and a folder for the same address | The links are used. The folder is listed under "has links in the file". |
+| Y24 | After the import, filter **Listings without photos**, and download the row report | Only listings with no photo or a failed one. The CSV has photos from / in / waiting / failed for every listing. |
+| Y25 | Time the upload of 500 photos on a home connection | Note the time. 1,000 listings × 20 photos ≈ 40 × that. |
 
 ## Z — Google reviews, step 1 (ADR 0028)
 
@@ -2474,7 +2482,7 @@ Mock: `docs/mocks/home-search.html`. Public site, signed out unless said.
 | CZ18 | Phone width (375 px) | Tabs scroll sideways; Filters and Search share a row under the box; no page scroll sideways |
 | CZ19 | An old link `/search?suburb=Pakenham&radius=10` and an old alert | Same results as before this change |
 
-## DA — Agency data export, quick CSV (ADR 0101, phase 1)
+## DA — Agency data export, quick CSV (ADR 0104, phase 1)
 
 | # | Do | Expect |
 |---|---|---|

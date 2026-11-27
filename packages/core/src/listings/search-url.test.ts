@@ -3,7 +3,6 @@ import type { PublicSearchQuery } from './search-listings';
 import {
   asksForTravelTime,
   discountPlaceWords,
-  parseDistancePhrase,
   searchQueryToParams,
   searchQueryToPath,
   SEARCH_PARAM_KEYS,
@@ -113,7 +112,7 @@ describe('discountPlaceWords', () => {
 });
 
 describe('several places in a deep link (ADR 0099)', () => {
-  it('writes one loc per place and the shared radius, never their coordinates', () => {
+  it('writes one loc per place, each with its own distance, never their coordinates', () => {
     const params = searchQueryToParams({
       places: [
         { suburb: 'Pakenham', state: 'VIC', postcode: '3810', near: { lat: -38.08, lng: 145.48, radiusKm: 10 } },
@@ -121,31 +120,14 @@ describe('several places in a deep link (ADR 0099)', () => {
       ],
       propertyTypes: ['house', 'townhouse'],
     });
-    expect(params.getAll('loc')).toEqual(['Pakenham|VIC|3810', 'Berwick|VIC']);
-    expect(params.get('radius')).toBe('10');
+    expect(params.getAll('loc')).toEqual(['Pakenham|VIC|3810|10', 'Berwick|VIC||10']);
+    expect(params.has('radius')).toBe(false);
     expect(params.getAll('type')).toEqual(['house', 'townhouse']);
     expect(params.has('lat')).toBe(false);
   });
 });
 
-describe('parseDistancePhrase (ADR 0099)', () => {
-  it.each([
-    ['within 10 km of Pakenham', 10, 'Pakenham'],
-    ['10km from berwick', 10, 'berwick'],
-    ['5 kms around 3810', 5, '3810'],
-    ['Within 12 kilometres of Officer VIC', 10, 'Officer VIC'],
-    ['within 40 km near Bondi', 50, 'Bondi'],
-  ])('reads "%s"', (text, km, place) => {
-    expect(parseDistancePhrase(text)).toEqual({ km, place });
-  });
-
-  it.each(['Pakenham', '10 km', 'within km of Pakenham', '0 km from Pakenham', '3 bed house'])(
-    'leaves "%s" alone',
-    (text) => {
-      expect(parseDistancePhrase(text)).toBeNull();
-    },
-  );
-
+describe('asksForTravelTime (ADR 0099)', () => {
   it('knows travel time when it sees it, and not otherwise', () => {
     expect(asksForTravelTime('10 mins walk from Pakenham station')).toBe(true);
     expect(asksForTravelTime('walk to the beach')).toBe(true);
@@ -171,5 +153,79 @@ describe('suggestionToPlace: a chip without a second request', () => {
     expect(suggestionToPlace({ label: 'Officer', secondary: 'Australia', kind: 'locality' })).toBeNull();
     expect(suggestionToPlace({ label: 'Officer', secondary: null, kind: 'locality' })).toBeNull();
     expect(suggestionToPlace({ label: 'Wal|lan', secondary: 'VIC', kind: 'locality' })).toBeNull();
+  });
+});
+
+/** Per-place distance: each suburb carries its own km in its `loc`. */
+describe('a distance per place', () => {
+  it('writes and reads the km as the fourth part, and old links still read', async () => {
+    const { formatLoc, parseLoc } = await import('./search-url');
+    expect(formatLoc({ suburb: 'Pakenham', state: 'VIC', postcode: '3810', km: 10 })).toBe('Pakenham|VIC|3810|10');
+    expect(formatLoc({ suburb: 'Perth', state: 'WA', km: 20 })).toBe('Perth|WA||20');
+    expect(parseLoc('Perth|WA||20')).toEqual({ suburb: 'Perth', state: 'WA', km: 20 });
+    expect(parseLoc('Pakenham|VIC|3810')).toEqual({ suburb: 'Pakenham', state: 'VIC', postcode: '3810' });
+    // A bad distance costs the distance, never the place.
+    expect(parseLoc('Pakenham|VIC|3810|999')).toEqual({ suburb: 'Pakenham', state: 'VIC', postcode: '3810' });
+    expect(parseLoc('Pakenham|VIC|3810|abc')).toEqual({ suburb: 'Pakenham', state: 'VIC', postcode: '3810' });
+  });
+
+  it('keeps the one place\'s own distance when it becomes the plain suburb', async () => {
+    const { normalisePlaces, parseLoc } = await import('./search-url');
+    expect(normalisePlaces({ places: [parseLoc('Perth|WA||20')!] })).toEqual({ suburb: 'Perth', state: 'WA', km: 20 });
+  });
+
+  it('says the distances the way they were picked', async () => {
+    const { placesPhrase } = await import('./search-url');
+    expect(placesPhrase([{ suburb: 'Pakenham', km: 10 }, { suburb: 'Perth', km: 20 }])).toBe('Pakenham (+10 km) or Perth (+20 km)');
+    expect(placesPhrase([{ suburb: 'Pakenham', km: 10 }, { suburb: 'Officer', km: 10 }])).toBe('Pakenham or Officer and within 10 km of each');
+    expect(placesPhrase([{ suburb: 'Pakenham' }, { suburb: 'Officer' }], 5)).toBe('Pakenham or Officer and within 5 km of each');
+    expect(placesPhrase([{ suburb: 'Pakenham', km: 10 }, { suburb: 'Officer' }])).toBe('Pakenham (+10 km) or Officer');
+    expect(placesPhrase([{ suburb: 'Pakenham' }, { suburb: 'Officer' }])).toBe('Pakenham or Officer');
+  });
+});
+
+/** Saved searches and alerts keep what the box searched: one place's own distance, and smart search's keywords. */
+describe('saving a search with distances and keywords', () => {
+  it('a one-suburb search with its own distance can be saved (the stored shape has no `km`)', async () => {
+    const { parseSearchParams, savedSearchQuerySchema } = await import('./search-url');
+    const q = parseSearchParams(new URLSearchParams('channel=sale&loc=Pakenham%7CVIC%7C%7C10'));
+    expect(q).toEqual({ channel: 'sale', suburb: 'Pakenham', state: 'VIC', radiusKm: 10 });
+    expect(savedSearchQuerySchema.safeParse(q).success).toBe(true);
+  });
+
+  it('keeps each place\'s own distance when there are several', async () => {
+    const { parseSearchParams, savedSearchQuerySchema } = await import('./search-url');
+    const q = parseSearchParams(new URLSearchParams('loc=Pakenham%7CVIC%7C%7C10&loc=Perth%7CWA%7C%7C20'));
+    expect(q.places).toEqual([{ suburb: 'Pakenham', state: 'VIC', km: 10 }, { suburb: 'Perth', state: 'WA', km: 20 }]);
+    expect(savedSearchQuerySchema.safeParse(q).success).toBe(true);
+  });
+
+  it('saves kw as mustMention, at most three, and links back with them', async () => {
+    const { parseSearchParams, savedQueryToPath, savedSearchQuerySchema } = await import('./search-url');
+    const q = parseSearchParams(new URLSearchParams('loc=Berwick%7CVIC&kw=pool&kw=ocean%20views&kw=x&kw=pool&kw=shed&kw=deck'));
+    expect(q.mustMention).toEqual(['pool', 'ocean views', 'shed']);
+    expect(savedSearchQuerySchema.safeParse(q).success).toBe(true);
+    const back = new URL(`https://x${savedQueryToPath(q)}`).searchParams;
+    expect(back.getAll('kw')).toEqual(['pool', 'ocean views', 'shed']);
+  });
+
+  it('says the keywords and each distance in the alert\'s words', async () => {
+    const { describeSavedQuery } = await import('./search-url');
+    expect(describeSavedQuery({ channel: 'sale', places: [{ suburb: 'Pakenham', km: 10 }, { suburb: 'Perth', km: 20 }], mustMention: ['pool'] }))
+      .toBe('homes for sale in Pakenham (+10 km) or Perth (+20 km) with "pool"');
+  });
+
+  it('a run query links back with each place at its own distance and the keywords', async () => {
+    const { searchQueryToParams } = await import('./search-url');
+    const p = searchQueryToParams({
+      places: [
+        { suburb: 'Pakenham', state: 'VIC', near: { lat: -38, lng: 145, radiusKm: 10 } },
+        { suburb: 'Perth', state: 'WA', near: { lat: -31, lng: 115, radiusKm: 20 } },
+      ],
+      mustMention: ['pool'],
+    });
+    expect(p.getAll('loc')).toEqual(['Pakenham|VIC||10', 'Perth|WA||20']);
+    expect(p.getAll('kw')).toEqual(['pool']);
+    expect(p.has('radius')).toBe(false);
   });
 });

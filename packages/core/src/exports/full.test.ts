@@ -56,7 +56,7 @@ function fakeDb(results: unknown[][]) {
 
 const job = (attempts = 1): JobRow => ({ id: 'j', agencyId: A, kind: 'data.export', lane: 'bulk', payload: { exportId: EXP }, dedupeKey: null, status: 'running', attempts, maxAttempts: 3, runAt: NOW, claimedAt: NOW, finishedAt: null, lastError: null, createdAt: NOW });
 
-describe('full export (ADR 0101 phase 3)', () => {
+describe('full export (ADR 0104 phase 3)', () => {
   it('refuses an actor with no agency, or a platform view, before touching the database', async () => {
     for (const actor of [{ userId: 'x' }, { ...owner, via: 'platform' as const }] as Actor[]) {
       const f = fakeDb([]);

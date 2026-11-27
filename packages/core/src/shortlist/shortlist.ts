@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import { listing, property, shortlist, type DbOrTx } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { publicListing } from '../listings/search-listings';
@@ -40,10 +40,35 @@ export async function addToShortlist(db: DbOrTx, actor: Actor, listingId: string
   await db.insert(shortlist).values({ userId: actor.userId, listingId }).onConflictDoNothing();
 }
 
+/** What a removal took away, so Undo can put it back as it was. */
+export type RemovedHome = { note: string | null; savedAt: Date };
+
 /** Remove a home — any home on the list, public or not any more (a buyer can always tidy their own list). */
-export async function removeFromShortlist(db: DbOrTx, actor: Actor, listingId: string): Promise<void> {
+export async function removeFromShortlist(db: DbOrTx, actor: Actor, listingId: string): Promise<RemovedHome | null> {
   require(actor, 'shortlist:manage');
-  await db.delete(shortlist).where(and(eq(shortlist.userId, actor.userId), eq(shortlist.listingId, listingId)));
+  const [gone] = await db
+    .delete(shortlist)
+    .where(and(eq(shortlist.userId, actor.userId), eq(shortlist.listingId, listingId)))
+    .returning({ note: shortlist.note, savedAt: shortlist.createdAt });
+  return gone ?? null;
+}
+
+/**
+ * Undo a removal (ADR 0100): the home goes back with its note and its place in the list. Unlike a save, a home
+ * no longer advertised may come back, since it was on the list a moment ago, but only one that was ever
+ * published: otherwise a made-up id would show a draft's address. The browser sends the note and the date, so
+ * both are checked as input: the note as a note, the date never later than now.
+ */
+export async function restoreToShortlist(db: DbOrTx, actor: Actor, listingId: string, removed: { note: string | null; savedAt: Date }): Promise<void> {
+  require(actor, 'shortlist:manage');
+  const note = (removed.note ?? '').replace(/\s+/g, ' ').trim();
+  if (note.length > MAX_NOTE) throw new ShortlistError('invalid', `A note is up to ${MAX_NOTE} characters.`);
+  const at = removed.savedAt instanceof Date && !Number.isNaN(removed.savedAt.getTime()) && removed.savedAt.getTime() <= Date.now() ? removed.savedAt : new Date();
+  const [was] = await db.select({ id: listing.id }).from(listing).where(and(eq(listing.id, listingId), isNotNull(listing.publishedAt))).limit(1);
+  if (!was) throw new ShortlistError('not_found', 'That home is not available.');
+  const [{ n } = { n: 0 }] = await db.select({ n: sql<number>`count(*)::int` }).from(shortlist).where(eq(shortlist.userId, actor.userId));
+  if (Number(n) >= MAX_SHORTLIST) throw new ShortlistError('limit', `Your shortlist holds up to ${MAX_SHORTLIST} homes. Remove one first.`);
+  await db.insert(shortlist).values({ userId: actor.userId, listingId, note: note || null, createdAt: at }).onConflictDoNothing();
 }
 
 export async function setShortlistNote(db: DbOrTx, actor: Actor, listingId: string, note: string): Promise<void> {

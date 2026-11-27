@@ -24,7 +24,7 @@ import { instantToLocalInput } from '../time/local-input';
 import { agencyTimeZone } from '../widgets/registry';
 
 /**
- * Quick export (ADR 0101): the rows a list page selects, as CSV. Each dataset is scoped by its screen's own helper,
+ * Quick export (ADR 0104): the rows a list page selects, as CSV. Each dataset is scoped by its screen's own helper,
  * so an agent gets their own book and an admin the agency's. Streamed a page at a time, keyset on `id`.
  */
 export const QUICK_DATASETS = ['contacts', 'listings', 'leads', 'appointments', 'deals', 'notes'] as const;

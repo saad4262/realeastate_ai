@@ -7,9 +7,14 @@ import {
   asksForTravelTime,
   DISTANCE_STEPS_KM,
   formatLoc,
-  parseDistancePhrase,
+  placeOnly,
+  MAX_UNDERSTAND_CHARS,
+  plausiblePrice,
+  parseSearchText,
   suggestionToPlace,
+  type ParsedSearch,
   type PlaceRef,
+  type UnderstoodSearch,
 } from '@repo/core/listings/url';
 import { MAX_SEARCH_PLACES, PROPERTY_TYPES } from '@repo/core/listings/schema';
 import { Spinner } from './spinner';
@@ -83,6 +88,11 @@ function money(n: number, perWeek: boolean): string {
   return n >= 1_000_000 ? `$${n / 1_000_000}m` : `$${n / 1000}k`;
 }
 
+/** The distance steps, plus one typed that is not a step ("12 km"), in order. */
+function kmSteps(extra?: number): number[] {
+  return [...new Set([...DISTANCE_STEPS_KM, ...(extra && extra > 0 ? [extra] : [])])].sort((a, b) => a - b);
+}
+
 /** Browser storage can throw (private mode, blocked site data): recent searches are a convenience only. */
 function readRecent(): Recent[] {
   try {
@@ -111,6 +121,8 @@ export type SearchStart = {
   filters: Filters;
   /** Carried to the next search, not shown: the results page's own order. */
   sort?: string;
+  /** Smart search's keywords (ADR 0101), from the results page's `kw`. */
+  keywords?: string[];
 };
 
 export function HomeSearch({
@@ -137,10 +149,21 @@ export function HomeSearch({
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   /** Which lookup the list on screen answers; anything else is still on its way. */
   const [answered, setAnswered] = useState('');
+  /** Set when Search was pressed on a sentence: search once its reading has landed in state. */
+  const [searchNext, setSearchNext] = useState(false);
+  /** ADR 0101 part 2: words to find in listing text, and asks we cannot search, both from the model and checked by core. */
+  const [keywords, setKeywords] = useState<string[]>(start?.keywords ?? []);
+  const [gaps, setGaps] = useState<string[]>([]);
+  const [thinking, setThinking] = useState(false);
+  /** The model already had its turn (or failed): the next submit searches with what is in the box. */
+  const noAiOnce = useRef(false);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [recent, setRecent] = useState<Recent[]>([]);
+  /** Looking a place up or asking the model: the button waits, typing does not. */
   const [going, startGoing] = useTransition();
+  /** Leaving for the results: only then is the text box held still. */
+  const [navigating, startNav] = useTransition();
   const boxRef = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<HTMLLabelElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -148,9 +171,11 @@ export function HomeSearch({
 
   const isPlaceTab = tab === 'buy' || tab === 'rent' || tab === 'build' || tab === 'sold';
   const maxChips = MAX_SEARCH_PLACES;
-  const phrase = parseDistancePhrase(text);
+  // ADR 0101: the sentence read by rules, on every keystroke, with no request.
+  const parsed = !ai && isPlaceTab ? parseSearchText(text) : null;
+  const smart = parsed?.understood ? parsed : null;
   const travelTime = !ai && isPlaceTab && asksForTravelTime(text);
-  const lookup = (phrase ? phrase.place : text).trim();
+  const lookup = (smart ? (smart.places[0] ?? '') : text).trim();
   const wantsSuggestions =
     !ai && !travelTime && lookup.length >= MIN_CHARS && !(isPlaceTab && chips.length >= MAX_SEARCH_PLACES);
   const lookupKey = `${tab === 'address' ? 'address' : 'place'}|${lookup.toLowerCase()}`;
@@ -238,13 +263,27 @@ export function HomeSearch({
     }
   }
 
+  /** The distance a new chip starts with: the Distance control's, unless the sentence said its own. */
+  const defaultKm = radius ? Number(radius) : undefined;
+
   function addChip(chip: Chip) {
     setPoint(null);
-    setChips((c) => (c.some((x) => formatLoc(x) === formatLoc(chip)) || c.length >= maxChips ? c : [...c, chip]));
+    setChips((c) => {
+      const same = c.findIndex((x) => placeOnly(x) === placeOnly(chip));
+      // Picked again with its own distance ("20 km pakenham"): that suburb takes it, the others keep theirs.
+      if (same >= 0) return chip.km && c[same]!.km !== chip.km ? c.map((x, i) => (i === same ? { ...x, km: chip.km } : x)) : c;
+      return c.length >= maxChips ? c : [...c, chip];
+    });
+  }
+
+  /** One suburb's own distance, from the select on its chip. */
+  function setChipKm(chip: Chip, value: string) {
+    setChips((all) => all.map((x) => (placeOnly(x) === placeOnly(chip) ? { ...x, km: value ? Number(value) : undefined } : x)));
   }
 
   function choose(s: PlaceSuggestion) {
-    const typedKm = phrase?.km;
+    if (smart) return applySmart(smart, s);
+    const typedKm = undefined;
     const typed = text;
     setSuggestions([]);
     setOpen(false);
@@ -257,7 +296,7 @@ export function HomeSearch({
     }
     if (instant) {
       setText('');
-      addChip(chipOf(instant));
+      addChip(chipOf({ ...instant, km: typedKm ?? defaultKm }));
       if (typedKm) setRadius(String(typedKm));
       inputRef.current?.focus();
       return;
@@ -276,6 +315,134 @@ export function HomeSearch({
       applyPlace(s, place, typedKm);
     });
   }
+
+  /** The first suggestion for some place words, from memory when this visit already asked. */
+  async function suggestFor(words: string): Promise<PlaceSuggestion | undefined> {
+    const key = `place|${words.trim().toLowerCase()}`;
+    const known = SUGGESTED.get(key);
+    if (known) return known[0];
+    try {
+      const res = await fetch(`/api/places?q=${encodeURIComponent(words.trim())}`);
+      if (!res.ok) return undefined;
+      const found = ((await res.json()) as { suggestions?: PlaceSuggestion[] }).suggestions ?? [];
+      SUGGESTED.set(key, found);
+      return found[0];
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Set everything a sentence said: its places as chips, Distance, Filters, and
+   * the Rent or Build tab when it asked for one. Searching stays a separate
+   * step unless `thenSearch` (the Search button was pressed on the sentence).
+   */
+  function applySmart(
+    p: ParsedSearch,
+    firstPick?: PlaceSuggestion,
+    thenSearch = false,
+    opts: { sentence?: string; fromAi?: boolean } = {},
+  ) {
+    const sentence = opts.sentence ?? text;
+    setSuggestions([]);
+    setOpen(false);
+    setText('');
+    // Sold stays Sold; otherwise the sentence's own words choose the tab. Not
+    // switchTab: that clears the price this is about to set.
+    const nextTab: Tab =
+      tab === 'sold' ? 'sold' : p.channel === 'rent' ? 'rent' : p.newBuild ? 'build' : p.channel === 'sale' && tab === 'rent' ? 'buy' : tab;
+    if (nextTab !== tab) setTab(nextTab);
+    if (p.km) setRadius(String(p.km));
+    // The tab decides what a small number means: $600 is rent on Rent, and no price at all for a home to buy.
+    const priceFrom = plausiblePrice(p.priceFrom, nextTab === 'rent');
+    const priceTo = plausiblePrice(p.priceTo, nextTab === 'rent');
+    setFilters((f) => ({
+      ...f,
+      ...(p.types.length ? { types: p.types } : {}),
+      ...(p.beds ? { beds: String(p.beds) } : {}),
+      ...(p.baths ? { baths: String(p.baths) } : {}),
+      ...(p.cars ? { cars: String(p.cars) } : {}),
+      ...(priceFrom ? { priceFrom: String(priceFrom) } : {}),
+      ...(priceTo ? { priceTo: String(priceTo) } : {}),
+    }));
+    if (!p.places.length) {
+      if (thenSearch) setSearchNext(true);
+      inputRef.current?.focus();
+      return;
+    }
+    startGoing(async () => {
+      const missing: string[] = [];
+      for (const [i, words] of p.places.entries()) {
+        const s = i === 0 && firstPick ? firstPick : await suggestFor(words);
+        let ref: PlaceRef | null = s ? suggestionToPlace(s) : null;
+        if (s && !ref) {
+          const place = await resolve(s);
+          if (place?.suburb && (place.kind === 'locality' || place.kind === 'postcode')) {
+            ref = { suburb: place.suburb, state: place.state ?? undefined, postcode: place.postcode ?? undefined };
+          } else if (place && p.places.length === 1 && nextTab !== 'sold') {
+            // A region on its own: a point with its own circle, as a picked region is.
+            setChips([]);
+            setPoint({ label: s.label, lat: place.latitude, lng: place.longitude });
+            if (!p.km) setRadius(String(DEFAULT_RADIUS_KM[place.kind]));
+            continue;
+          }
+        }
+        // This sentence's distance goes on this sentence's places; earlier chips keep theirs.
+        if (ref) addChip(chipOf({ ...ref, km: p.km ?? defaultKm }));
+        else missing.push(words);
+      }
+      // Words that are not a place: the model reads the whole sentence once; if it
+      // cannot, they go back in the box, where the list says so.
+      const putBack = () => {
+        setText(missing.join(', '));
+        setOpen(true);
+      };
+      if (missing.length && !opts.fromAi) {
+        understandWithAi(sentence, thenSearch, putBack);
+      } else if (missing.length) {
+        putBack();
+      } else if (thenSearch) {
+        setSearchNext(true);
+      }
+      inputRef.current?.focus();
+    });
+  }
+
+  /**
+   * The model reads a sentence the rules could not finish (ADR 0101 part 2).
+   * Everything it returns was checked by core against the sentence; on any
+   * failure the box carries on without it.
+   */
+  function understandWithAi(sentence: string, thenSearch: boolean, fallback: () => void) {
+    setThinking(true);
+    startGoing(async () => {
+      try {
+        const res = await fetch('/api/search/understand', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: sentence.slice(0, MAX_UNDERSTAND_CHARS) }),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        const u = (await res.json()) as UnderstoodSearch;
+        if (!u.places?.length && !u.understood) throw new Error('nothing read');
+        setKeywords(u.keywords ?? []);
+        setGaps(u.notSearchable ?? []);
+        applySmart(u, undefined, thenSearch, { sentence, fromAi: true });
+      } catch {
+        fallback();
+      } finally {
+        setThinking(false);
+      }
+    });
+  }
+
+  // The Search button on a sentence: search once its reading is in state.
+  useEffect(() => {
+    if (!searchNext || going) return;
+    setSearchNext(false);
+    submit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs on the flag; submit reads the state that just landed
+  }, [searchNext, going]);
 
   function applyPlace(s: PlaceSuggestion, place: ResolvedPlace, typedKm: number | undefined) {
     if (tab === 'agents') {
@@ -312,7 +479,12 @@ export function HomeSearch({
     // suburb is a point with its own sensible circle, and stands alone.
     if (place.suburb && (place.kind === 'locality' || place.kind === 'postcode')) {
       addChip(
-        chipOf({ suburb: place.suburb, state: place.state ?? undefined, postcode: place.postcode ?? undefined }),
+        chipOf({
+          suburb: place.suburb,
+          state: place.state ?? undefined,
+          postcode: place.postcode ?? undefined,
+          km: typedKm ?? defaultKm,
+        }),
       );
     } else if (tab !== 'sold') {
       // /sold names suburbs only: it never takes coordinates from a URL.
@@ -327,7 +499,7 @@ export function HomeSearch({
   function go(href: string, entry: Omit<Recent, 'href'>) {
     saveRecent({ ...entry, href });
     setOpen(false);
-    startGoing(() => router.push(href));
+    startNav(() => router.push(href));
   }
 
   const perWeek = tab === 'rent';
@@ -343,15 +515,26 @@ export function HomeSearch({
     const typed = text.trim();
 
     if (ai) {
-      if (typed) startGoing(() => router.push(`/chat?ask=${encodeURIComponent(typed.slice(0, 1000))}`));
+      if (typed) startNav(() => router.push(`/chat?ask=${encodeURIComponent(typed.slice(0, 1000))}`));
       return;
     }
-    // "within 10 km of Pakenham" + Enter: take the first suggestion for the place.
-    if (phrase && suggestions[0]) return void choose(suggestions[0]);
+    // A sentence ("pakenham 10km 3 bed"): set what it says, then search.
+    if (smart) return applySmart(smart, smart.places.length ? suggestions[0] : undefined, true);
     if (tab === 'address' || tab === 'agents') {
       if (suggestions[0]) return void choose(suggestions[0]);
       if (tab === 'agents' && typed) go(`/agents?q=${encodeURIComponent(typed)}`, { label: `Agents: ${typed}`, detail: '' });
       return;
+    }
+
+    // A sentence the box could not place ("family home near good schools in
+    // berwick"): the model reads it before it becomes a keyword search.
+    const skipAi = noAiOnce.current;
+    noAiOnce.current = false;
+    if (!skipAi && !chips.length && !point && typed.split(/\s+/).length >= 3 && !suggestions.length) {
+      return understandWithAi(typed, true, () => {
+        noAiOnce.current = true;
+        setSearchNext(true);
+      });
     }
 
     const params = new URLSearchParams();
@@ -364,8 +547,11 @@ export function HomeSearch({
       params.set('lat', point.lat.toFixed(6));
       params.set('lng', point.lng.toFixed(6));
     }
-    if (radius && (chips.length || point)) params.set('radius', radius);
+    // Each suburb's distance rides in its own `loc`; the shared radius is only for a point.
+    if (radius && point) params.set('radius', radius);
     if (!chips.length && !point && typed) params.set('q', typed);
+    // /sold has no keyword filter; /search matches each in the listing's own words.
+    if (tab !== 'sold') for (const k of keywords) params.append('kw', k);
 
     for (const t of filters.types) params.append('type', t);
     if (filters.beds) params.set('beds', filters.beds);
@@ -378,7 +564,7 @@ export function HomeSearch({
     const where = point ? [point.label] : chips.map((c) => c.label);
     const detail = [
       TABS.find((t) => t.id === tab)?.label ?? '',
-      radius && where.length ? `+ within ${radius} km` : '',
+      point && radius ? `+ within ${radius} km` : chipKm === 'mixed' ? 'distance per suburb' : chipKm ? `+ within ${chipKm} km` : '',
       filters.beds ? `${filters.beds}+ beds` : '',
     ]
       .filter(Boolean)
@@ -396,21 +582,32 @@ export function HomeSearch({
       return;
     }
     if (e.key === 'Escape') return setOpen(false);
-    if (!suggestions.length) return;
+    const offset = smart ? 1 : 0;
+    const count = offset + suggestions.length;
+    if (!count) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setOpen(true);
-      setActive((i) => (i + 1) % suggestions.length);
+      setActive((i) => ((i < 0 ? activeIdx : i) + 1) % count);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setActive((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
-    } else if (e.key === 'Enter' && active >= 0 && suggestions[active]) {
+      setActive((i) => ((i < 0 ? activeIdx : i) <= 0 ? count - 1 : (i < 0 ? activeIdx : i) - 1));
+    } else if (e.key === 'Enter' && activeIdx >= 0) {
       e.preventDefault();
-      void choose(suggestions[active]);
+      if (smart && activeIdx === 0) applySmart(smart, suggestions[0]);
+      else if (suggestions[activeIdx - offset]) choose(suggestions[activeIdx - offset]!);
     }
   }
 
   const title = ai ? 'Describe the home you want' : TABS.find((t) => t.id === tab)?.title;
+  /** The suburbs' shared distance, '' for none, or 'mixed' when each has its own. */
+  const chipKm = (() => {
+    const kms = chips.map((c) => (c.km ? String(c.km) : ''));
+    return kms.every((k) => k === kms[0]) ? (kms[0] ?? '') : 'mixed';
+  })();
+  /** With a reading on screen, it is the option Enter takes unless the user moved. */
+  const activeIdx = active === -1 && smart && open ? 0 : active;
+  const smartPills = smart ? readingPills(smart, suggestions[0], lookup, answered === lookupKey) : [];
   const placeholder = ai
     ? 'e.g. a 3-bed family home near Berwick under $900k'
     : tab === 'address'
@@ -490,8 +687,9 @@ export function HomeSearch({
         ) : null}
 
         <form className={styles.row} onSubmit={submit} role="search">
-          {/* A label, so a click anywhere in the field focuses the input natively. */}
-          <label className={styles.field} ref={fieldRef}>
+          {/* A label, so a click anywhere in the field focuses the input natively. Tied to the input by id:
+              the chips' distance selects come first, and a bare label would take the first of those. */}
+          <label className={styles.field} ref={fieldRef} htmlFor={`${id}-q`}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className={styles.glass}>
               <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
               <path d="m20 20-4-4" stroke="currentColor" strokeWidth="2" />
@@ -500,12 +698,26 @@ export function HomeSearch({
               ? chips.map((c, i) => (
                   // Past the second (the first on a phone), a chip waits behind "+N more" until the box is in use.
                   <span
-                    key={formatLoc(c)}
+                    key={placeOnly(c)}
                     className={styles.chip}
                     data-extra={i >= SHOWN_CHIPS ? '' : undefined}
                     data-extra-narrow={i >= 1 ? '' : undefined}
                   >
                     {c.label}
+                    {/* This suburb's own distance: changing it moves no other chip. */}
+                    <select
+                      className={styles.chipKm}
+                      aria-label={`Distance around ${c.label}`}
+                      value={c.km ?? ''}
+                      onChange={(e) => setChipKm(c, e.target.value)}
+                    >
+                      <option value="">+0 km</option>
+                      {kmSteps(c.km).map((km) => (
+                        <option key={km} value={km}>
+                          +{km} km
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       aria-label={`Remove ${c.label}`}
@@ -531,6 +743,7 @@ export function HomeSearch({
               </span>
             ) : null}
             <input
+              id={`${id}-q`}
               ref={inputRef}
               className={styles.input}
               value={text}
@@ -542,8 +755,9 @@ export function HomeSearch({
               aria-controls={listId}
               aria-autocomplete="list"
               maxLength={ai ? 1000 : 200}
-              // readOnly, not disabled: a disabled input drops focus mid-lookup.
-              readOnly={going}
+              // Held only while leaving for the results; a place lookup must not eat the next suburb's keys.
+              // readOnly, not disabled: a disabled input drops focus.
+              readOnly={navigating}
               onChange={(e) => {
                 setText(e.target.value);
                 setOpen(true);
@@ -570,9 +784,9 @@ export function HomeSearch({
               {filterCount ? `Filters · ${filterCount}` : 'Filters'}
             </button>
           ) : null}
-          <button type="submit" className={styles.go} disabled={going} aria-busy={going}>
-            {going ? <Spinner /> : null}
-            {ai ? 'Ask the guide' : 'Search'}
+          <button type="submit" className={styles.go} disabled={going || navigating} aria-busy={going || navigating}>
+            {going || navigating ? <Spinner /> : null}
+            {thinking ? 'Understanding…' : ai ? 'Ask the guide' : 'Search'}
           </button>
         </form>
 
@@ -581,22 +795,48 @@ export function HomeSearch({
             <label htmlFor={`${id}-km`}>Distance</label>
             <select
               id={`${id}-km`}
-              value={placed ? radius : ''}
+              value={!placed ? '' : point ? radius : chipKm}
               disabled={!placed}
-              title={placed ? undefined : 'Pick a suburb first'}
-              onChange={(e) => setRadius(e.target.value)}
+              title={placed ? 'Sets every suburb; each chip can have its own' : 'Pick a suburb first'}
+              onChange={(e) => {
+                if (e.target.value === 'mixed') return;
+                setRadius(e.target.value);
+                // Every suburb at once; a chip's own select changes just that one afterwards.
+                setChips((all) => all.map((c) => ({ ...c, km: e.target.value ? Number(e.target.value) : undefined })));
+              }}
             >
               <option value="">{point ? 'Around this place' : placed ? 'Only these suburbs' : 'Pick a suburb first'}</option>
-              {[...new Set([...DISTANCE_STEPS_KM, ...(radius ? [Number(radius)] : [])])]
-                .filter((km) => km > 0)
-                .sort((a, b) => a - b)
-                .map((km) => (
+              {chipKm === 'mixed' ? (
+                <option value="mixed" disabled>
+                  Different per suburb
+                </option>
+              ) : null}
+              {kmSteps(point ? defaultKm : chipKm && chipKm !== 'mixed' ? Number(chipKm) : undefined).map((km) => (
                 <option key={km} value={km}>
                   + within {km} km
                 </option>
               ))}
             </select>
-            {radius && chips.length > 1 ? <span className={styles.muted}>of each suburb</span> : null}
+            {chipKm && chipKm !== 'mixed' && chips.length > 1 ? <span className={styles.muted}>of each suburb</span> : null}
+            {tab !== 'sold' && (keywords.length || gaps.length) ? (
+              // What the model added, on this one line so nothing below moves.
+              <span className={styles.aiNote}>
+                <span aria-hidden>✦</span>
+                {keywords.map((k) => (
+                  <span key={k} className={styles.kwChip}>
+                    &ldquo;{k}&rdquo;
+                    <button type="button" aria-label={`Remove ${k}`} onClick={() => setKeywords((all) => all.filter((x) => x !== k))}>
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {gaps.length ? (
+                  <span className={styles.gaps} title={`We can't search these yet: ${gaps.join(', ')}`}>
+                    Not searchable yet: {gaps.join(', ')}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
           </div>
         ) : null}
 
@@ -612,7 +852,7 @@ export function HomeSearch({
                         key={s}
                         type="button"
                         className={styles.pill}
-                        onClick={() => startGoing(() => router.push(`/chat?ask=${encodeURIComponent(s)}`))}
+                        onClick={() => startNav(() => router.push(`/chat?ask=${encodeURIComponent(s)}`))}
                       >
                         {s}
                       </button>
@@ -636,14 +876,64 @@ export function HomeSearch({
                   'Try "within 2 km of" a suburb instead.'
                 )}
               </p>
+            ) : smart ? (
+              <ul role="listbox" className={styles.list}>
+                <li>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={activeIdx === 0}
+                    className={activeIdx === 0 ? `${styles.option} ${styles.optionOn}` : styles.option}
+                    onMouseEnter={() => setActive(0)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applySmart(smart, suggestions[0])}
+                  >
+                    <span className={styles.optionIcon} aria-hidden>
+                      ✦
+                    </span>
+                    <span className={styles.optionMain}>
+                      <span className={styles.reading}>
+                        {smartPills.map((pill) => (
+                          <span key={pill} className={styles.pill}>
+                            {pill}
+                          </span>
+                        ))}
+                      </span>
+                      <span className={styles.optionSub}>Press Enter to set these</span>
+                    </span>
+                    <span className={styles.kind}>Smart</span>
+                  </button>
+                </li>
+                {suggestions.map((s, i) => (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={activeIdx === i + 1}
+                      className={activeIdx === i + 1 ? `${styles.option} ${styles.optionOn}` : styles.option}
+                      onMouseEnter={() => setActive(i + 1)}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => choose(s)}
+                    >
+                      <span className={styles.optionIcon} aria-hidden>
+                        {s.kind === 'postcode' ? '#' : '◉'}
+                      </span>
+                      <span className={styles.optionMain}>
+                        {s.label}
+                        {s.secondary ? <span className={styles.optionSub}>{s.secondary}</span> : null}
+                      </span>
+                      <span className={styles.kind}>{s.kind === 'locality' ? 'Suburb' : s.kind}</span>
+                    </button>
+                  </li>
+                ))}
+                {searching ? (
+                  <li className={styles.hint} role="status">
+                    <Spinner /> Searching places…
+                  </li>
+                ) : null}
+              </ul>
             ) : suggestions.length ? (
               <>
-                {phrase ? (
-                  <p className={styles.understood}>
-                    We&apos;ll search for <span className={styles.pill}>{suggestions[0]?.label}</span>
-                    <span className={styles.pill}>+ within {phrase.km} km</span>
-                  </p>
-                ) : null}
                 <ul role="listbox" className={styles.list}>
                   {suggestions.map((s, i) => (
                     <li key={s.id}>
@@ -679,7 +969,7 @@ export function HomeSearch({
                       <button
                         type="button"
                         className={styles.option}
-                        onClick={() => startGoing(() => router.push(r.href))}
+                        onClick={() => startNav(() => router.push(r.href))}
                       >
                         <span className={styles.optionIcon} aria-hidden>
                           ↺
@@ -712,7 +1002,7 @@ export function HomeSearch({
                   ? "Type a street address to see that property: what it sold for, and what's listed."
                   : tab === 'agents'
                     ? 'Search a suburb to see the agents selling there.'
-                    : 'Pick as many suburbs as you like, or type "within 10 km of Pakenham".'}
+                    : 'Pick suburbs, or type it all: "pakenham 10km 3 bed house under 800k".'}
               </p>
             ) : null}
           </div>
@@ -728,7 +1018,7 @@ export function HomeSearch({
           onClick={() => setAiMenu((v) => !v)}
         >
           <span className={styles.beta}>Beta</span>
-          AI search: {ai ? 'On' : 'Off'}
+          Guide chat: {ai ? 'On' : 'Off'}
           <span aria-hidden>▾</span>
         </button>
         {aiMenu ? (
@@ -746,11 +1036,11 @@ export function HomeSearch({
                   router.prefetch('/chat');
                 }}
               >
-                <b>{on ? 'On: ask the property guide' : 'Off: normal search'}</b>
+                <b>{on ? 'On: ask the property guide' : 'Off: smart search'}</b>
                 <small>
                   {on
                     ? 'Describe it in a sentence. Prices and counts still come from live listings, never from the model.'
-                    : 'Pick suburbs, a distance and filters. Exact and instant.'}
+                    : 'Type it as you would say it, "pakenham 10km 3 bed under 800k", or pick suburbs and filters. Every result is a live listing.'}
                 </small>
               </button>
             ))}
@@ -862,4 +1152,38 @@ export function HomeSearch({
       </dialog>
     </div>
   );
+}
+
+const typeLabel = (t: string) => TYPE_LABELS[t] ?? t;
+
+/** The sentence's reading as short pills: what Enter will set. */
+function readingPills(p: ParsedSearch, first: PlaceSuggestion | undefined, lookup: string, firstAnswered: boolean): string[] {
+  const perWeek = p.channel === 'rent';
+  // A short name reads as a place; a long leftover is shown as typed, in quotes, since it may not be one.
+  const place = (words: string) =>
+    words.split(' ').length <= 3 ? words.replace(/\b\w/g, (c) => c.toUpperCase()) : `\u201c${words}\u201d`;
+  const firstPlace =
+    first && firstAnswered && p.places[0]?.trim().toLowerCase() === lookup.toLowerCase()
+      ? [first.label, first.secondary?.split(',')[0]].filter(Boolean).join(', ')
+      : p.places[0] && place(p.places[0]);
+  const price =
+    p.priceFrom && p.priceTo
+      ? `${money(p.priceFrom, perWeek)}–${money(p.priceTo, perWeek)}`
+      : p.priceTo
+        ? `under ${money(p.priceTo, perWeek)}`
+        : p.priceFrom
+          ? `from ${money(p.priceFrom, perWeek)}`
+          : '';
+  return [
+    firstPlace ?? '',
+    ...p.places.slice(1).map(place),
+    p.km ? `within ${p.km} km` : '',
+    p.channel === 'rent' ? 'For rent' : '',
+    p.newBuild ? 'New homes' : '',
+    p.types.map(typeLabel).join(' or '),
+    p.beds ? `${p.beds}+ beds` : '',
+    p.baths ? `${p.baths}+ baths` : '',
+    p.cars ? `${p.cars}+ cars` : '',
+    price,
+  ].filter(Boolean);
 }

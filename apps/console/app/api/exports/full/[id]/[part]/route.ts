@@ -5,7 +5,7 @@ import { getConsoleDb } from '../../../../../../lib/db';
 import { loadActor } from '../../../../../../lib/load-actor';
 import { actionUserId } from '../../../../../../lib/auth-account';
 
-/** One part of a full export (ADR 0101 phase 3): core checks it is this member's, ready and kept, then signs 60 s. */
+/** One part of a full export (ADR 0104 phase 3): core checks it is this member's, ready and kept, then signs 60 s. */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 

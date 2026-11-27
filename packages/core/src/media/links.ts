@@ -50,7 +50,7 @@ export function parseMediaLink(raw: string): MediaLink | null {
 /** The stored form: never a URL (the smoke invariant on `storage_key`). Pure. */
 export const linkKey = (l: MediaLink) => `${l.provider}:${l.id}`;
 
-/** The plain link for a provider and id — what an agent pastes, and what the import reads back (ADR 0101). Pure. */
+/** The plain link for a provider and id — what an agent pastes, and what the import reads back (ADR 0104). Pure. */
 export const linkUrl = (l: Pick<MediaLink, 'provider' | 'id'>) =>
   l.provider === 'youtube' ? `https://youtu.be/${l.id}` : l.provider === 'vimeo' ? `https://vimeo.com/${l.id}` : `https://my.matterport.com/show/?m=${l.id}`;
 

@@ -23,6 +23,12 @@ import {
   type ImportMode,
   type ImportReportRow,
   type ImportView,
+  attachPhotoFolder,
+  confirmImportPhotos,
+  signImportPhotos,
+  waitingFolderPhotos,
+  type FolderReport,
+  type SignedPhoto,
 } from '@repo/core/imports';
 import { tokenKeysFromEnv } from '@repo/core/integrations';
 import { isSkillOn } from '@repo/core/skill-switches';
@@ -214,6 +220,55 @@ export async function reimportSheetAction(id: string): Promise<R<{ id: string }>
     // Core asks the model only for a contacts import that left fields unmatched.
     await suggestMapping(a, r.id);
     return { ok: true, id: r.id };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ── Photos from a folder on this computer (ADR 0102) ─────────────────────────
+
+/** The dropped folder's paths and sizes (never the files): each listing's plan, and what did not match. */
+export async function attachPhotoFolderAction(id: string, files: { path: string; size: number }[]): Promise<R<{ report: FolderReport }>> {
+  try {
+    return { ok: true, report: await attachPhotoFolder(getConsoleDb(), await actor(), id, files) };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** The folder photos still to send (and the ones refused), in each listing's order. */
+export async function waitingFolderPhotosAction(id: string): Promise<R<{ photos: Awaited<ReturnType<typeof waitingFolderPhotos>> }>> {
+  try {
+    return { ok: true, photos: await waitingFolderPhotos(getConsoleDb(), await actor(), id) };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function signImportPhotosAction(id: string, refs: { rowId: string; path: string; type: string }[]): Promise<R<{ signed: SignedPhoto[] }>> {
+  try {
+    return { ok: true, signed: await signImportPhotos(getConsoleDb(), await actor(), id, refs) };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function confirmImportPhotosAction(
+  id: string,
+  input: { uploaded: { rowId: string; path: string; key: string; width?: number; height?: number }[]; failed: { rowId: string; path: string; error: string }[] },
+): Promise<R<{ done: number; failed: number }>> {
+  try {
+    const r = await confirmImportPhotos(getConsoleDb(), await actor(), id, input);
+    return { ok: true, ...r };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Each listing's photos (ADR 0102): every listing, or only the ones with none or a failed one. */
+export async function photoReportAction(id: string, missingOnly: boolean): Promise<R<{ rows: ImportReportRow[] }>> {
+  try {
+    return { ok: true, rows: await importReport(getConsoleDb(), await actor(), id, { ...(missingOnly ? { photos: 'missing' as const } : {}), limit: 500 }) };
   } catch (err) {
     return fail(err);
   }

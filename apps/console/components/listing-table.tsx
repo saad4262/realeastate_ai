@@ -374,7 +374,7 @@ export function ListingTable({
           <p className={styles.sub}>{subtitle}</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          {/* ADR 0101: every listing in this member's scope, in the import's own columns. */}
+          {/* ADR 0104: every listing in this member's scope, in the import's own columns. */}
           <a href="/api/exports/listings" className={styles.add} download>
             <span className={styles.glyphSm} aria-hidden>
               download

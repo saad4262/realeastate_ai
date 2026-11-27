@@ -14,6 +14,7 @@ import {
   reimportSheetAction,
 } from '@/lib/import-actions';
 import { useRouter } from 'next/navigation';
+import { FolderPhotos, PhotoReport } from './folder-photos';
 
 const STATUS: Record<string, string> = {
   mapped: 'Match the columns, then check the file',
@@ -281,7 +282,9 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
               {c.imported} imported · {c.updated} updated · {c.failed} failed
             </>
           )}
-          {c.photosDone + c.photosFailed + c.photosPending ? ` · photos: ${c.photosDone} in, ${c.photosFailed} failed, ${c.photosPending} to go` : ''}
+          {c.photosDone + c.photosFailed + c.photosPending + c.photosLocal
+            ? ` · photos: ${c.photosDone} in, ${c.photosFailed} failed, ${c.photosPending} to go${c.photosLocal ? `, ${c.photosLocal} on your computer` : ''}`
+            : ''}
         </p>
         <RunProgress view={view} />
         {view.aiClean && ['validated', 'importing', 'done'].includes(view.status) ? (
@@ -333,6 +336,13 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
         </p>
       </section>
 
+      {view.kind === 'listings' && ['validated', 'importing', 'done'].includes(view.status) ? (
+        <>
+          {view.mayRun ? <FolderPhotos id={id} view={view} onChanged={load} /> : null}
+          <PhotoReport id={id} view={view} />
+        </>
+      ) : null}
+
       {problems.length ? (
         <section style={box}>
           <h2 style={{ marginTop: 0, fontSize: '1rem' }}>Rows to look at ({problems.length}{problems.length === 500 ? '+' : ''})</h2>
@@ -356,7 +366,7 @@ export function ImportDetail({ id, listingsHref }: { id: string; listingsHref: s
                       </div>
                     ))}
                     {p.photos.filter((x) => x.status === 'failed').map((x, i) => (
-                      <div key={`p${i}`}>Photo {x.url.slice(0, 60)} — {x.error}</div>
+                      <div key={`p${i}`}>Photo {(x.url ?? x.path ?? '').slice(0, 60)} — {x.error}</div>
                     ))}
                   </td>
                 </tr>

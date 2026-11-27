@@ -182,6 +182,32 @@ function requireRun(actor: Actor, imp: { id: string; agencyId: string; createdBy
   if (!can(actor, 'listing_import:run', resource(imp))) throw new ImportError('forbidden', 'Only the person who uploaded this file can run it');
 }
 
+/** An import this person may run: for the folder photos (ADR 0102), which share the import's rules. */
+export async function loadRunnableImport(db: DbOrTx, actor: Actor, id: string) {
+  const imp = await loadImport(db, actor, id);
+  requireRun(actor, imp);
+  return imp;
+}
+
+/**
+ * One photo of a row (`listing_import_row.photos`): a link from the file (`url`, fetched by the worker
+ * while `pending`), or a file on the uploader's computer (`path` + `size`, ADR 0102), uploaded by
+ * their browser while `local`. The worker only ever takes `pending`.
+ */
+export type PhotoEntry = {
+  url?: string;
+  path?: string;
+  size?: number;
+  status: 'pending' | 'local' | 'done' | 'failed';
+  error?: string;
+  kind?: 'floorplan';
+};
+
+/** A row's links from the file, as photo entries: links first, then floorplan links. */
+function linkEntries(n: NormalizedRow): PhotoEntry[] {
+  return [...n.photoUrls.map((url) => ({ url, status: 'pending' as const })), ...(n.floorplanUrls ?? []).map((url) => ({ url, status: 'pending' as const, kind: 'floorplan' as const }))];
+}
+
 /** Change the column mapping. Any earlier dry run is thrown away — it must run again. */
 export async function setImportMapping(db: Db, actor: Actor, id: string, mapping: unknown): Promise<void> {
   const imp = await loadImport(db, actor, id);
@@ -199,7 +225,7 @@ export async function setImportMapping(db: Db, actor: Actor, id: string, mapping
     await tx.update(listingImport).set({ mapping: parsed.data, aiMapped, status: 'mapped', updatedAt: sql`now()` }).where(eq(listingImport.id, imp.id));
     await tx
       .update(listingImportRow)
-      .set({ status: 'pending', normalized: null, errors: [], warnings: [], duplicateOfListingId: null, updatedAt: sql`now()` })
+      .set({ status: 'pending', normalized: null, errors: [], warnings: [], duplicateOfListingId: null, photos: [], updatedAt: sql`now()` })
       .where(eq(listingImportRow.importId, imp.id));
   });
 }
@@ -459,7 +485,7 @@ async function validateChunk(db: Db, actor: Actor, imp: ImportRow, deps: ImportD
           : [])];
       await tx
         .update(listingImportRow)
-        .set({ status: dup || inFile ? 'duplicate' : 'valid', normalized, errors: [], warnings, duplicateOfListingId: dup?.id ?? null, updatedAt: sql`now()` })
+        .set({ status: dup || inFile ? 'duplicate' : 'valid', normalized, errors: [], warnings, duplicateOfListingId: dup?.id ?? null, photos: dup || inFile ? [] : linkEntries(c.row), updatedAt: sql`now()` })
         .where(eq(listingImportRow.id, c.id));
       if (!inFile && !dup) seen.set(`${c.key}|${c.row.listing.channel}`, c.rowNumber);
     }
@@ -549,7 +575,8 @@ async function importChunk(db: Db, actor: Actor, imp: ImportRow, deps: ImportDep
               status: outcome.status,
               listingId: outcome.listingId,
               warnings,
-              photos: [...n.photoUrls.map((url) => ({ url, status: 'pending' })), ...(n.floorplanUrls ?? []).map((url) => ({ url, status: 'pending', kind: 'floorplan' }))],
+              // The file's links win; with none, the folder plan attached after the dry run stays (ADR 0102).
+              photos: n.photoUrls.length || n.floorplanUrls?.length ? linkEntries(n) : r.photos,
               updatedAt: sql`now()`,
             })
             .where(eq(listingImportRow.id, r.id));
@@ -573,9 +600,9 @@ async function importChunk(db: Db, actor: Actor, imp: ImportRow, deps: ImportDep
   if (withPhotos.length) {
     let budget = CHUNK_PHOTOS;
     for (const r of withPhotos) {
-      const photos = [...(r.photos as { url: string; status: string; error?: string; kind?: 'floorplan' }[])];
+      const photos = [...(r.photos as PhotoEntry[])];
       for (const p of photos) {
-        if (p.status !== 'pending' || budget <= 0) continue;
+        if (p.status !== 'pending' || !p.url || budget <= 0) continue;
         budget -= 1;
         try {
           // A floorplan (C9) is fetched and stored exactly as a photo, then attached as a floorplan.
@@ -599,6 +626,12 @@ export type ImportCounts = Record<'pending' | 'valid' | 'error' | 'duplicate' | 
   photosPending: number;
   photosDone: number;
   photosFailed: number;
+  /** Photos from a folder still on the uploader's computer (ADR 0102): only their browser can send them. */
+  photosLocal: number;
+  /** Listings (valid, imported or updated rows) by photos: some coming or in, none at all, one or more failed. */
+  listingsWithPhotos: number;
+  listingsWithoutPhotos: number;
+  listingsWithFailedPhotos: number;
 };
 
 export type ImportView = {
@@ -645,6 +678,10 @@ export async function getImport(db: Db, actor: Actor, id: string): Promise<Impor
       photosPending: sql<string>`coalesce(sum((select count(*) from jsonb_array_elements(${listingImportRow.photos}) p where p->>'status' = 'pending')), 0)`,
       photosDone: sql<string>`coalesce(sum((select count(*) from jsonb_array_elements(${listingImportRow.photos}) p where p->>'status' = 'done')), 0)`,
       photosFailed: sql<string>`coalesce(sum((select count(*) from jsonb_array_elements(${listingImportRow.photos}) p where p->>'status' = 'failed')), 0)`,
+      photosLocal: sql<string>`coalesce(sum((select count(*) from jsonb_array_elements(${listingImportRow.photos}) p where p->>'status' = 'local')), 0)`,
+      listingsWithPhotos: sql<string>`count(*) filter (where status in ('valid', 'imported', 'updated') and jsonb_array_length(photos) > 0)`,
+      listingsWithoutPhotos: sql<string>`count(*) filter (where status in ('valid', 'imported', 'updated') and jsonb_array_length(photos) = 0)`,
+      listingsWithFailedPhotos: sql<string>`count(*) filter (where status in ('valid', 'imported', 'updated') and photos @> '[{"status":"failed"}]')`,
       sample: sql<unknown>`(select jsonb_agg(x.raw order by x.row_number) from (select raw, row_number from listing_import_row where import_id = ${imp.id} and raw is not null order by row_number limit 20) x)`,
     })
     .from(listingImportRow)
@@ -667,7 +704,8 @@ export async function getImport(db: Db, actor: Actor, id: string): Promise<Impor
     counts: {
       pending: n(c?.pending), valid: n(c?.valid), error: n(c?.error), duplicate: n(c?.duplicate), imported: n(c?.imported),
       updated: n(c?.updated), failed: n(c?.failed), skipped: n(c?.skipped),
-      photosPending: n(c?.photosPending), photosDone: n(c?.photosDone), photosFailed: n(c?.photosFailed),
+      photosPending: n(c?.photosPending), photosDone: n(c?.photosDone), photosFailed: n(c?.photosFailed), photosLocal: n(c?.photosLocal),
+      listingsWithPhotos: n(c?.listingsWithPhotos), listingsWithoutPhotos: n(c?.listingsWithoutPhotos), listingsWithFailedPhotos: n(c?.listingsWithFailedPhotos),
     },
     createdAt: new Date(imp.createdAt),
     finishedAt: imp.finishedAt ? new Date(imp.finishedAt) : null,
@@ -686,13 +724,31 @@ export type ImportReportRow = {
   listingId: string | null;
   /** A contacts import: the contact the row made. */
   contactId: string | null;
-  photos: { url: string; status: string; error?: string }[];
+  photos: PhotoEntry[];
+  /** What this listing gets (ADR 0102): from the file's links, a folder, or none; how many are in, waiting, failed. */
+  photoSummary: PhotoSummary;
   /** The listing's address, or the contact's name. */
   address: string | null;
 };
 
-/** The row-by-row report (a page of it), problems first. One statement. */
-export async function importReport(db: Db, actor: Actor, id: string, opts: { onlyProblems?: boolean; offset?: number; limit?: number } = {}): Promise<ImportReportRow[]> {
+export type PhotoSummary = { source: 'links' | 'folder' | 'none'; total: number; done: number; waiting: number; failed: number };
+
+export function photoSummary(photos: PhotoEntry[]): PhotoSummary {
+  const by = (s: PhotoEntry['status']) => photos.filter((p) => p.status === s).length;
+  return {
+    source: photos.some((p) => p.url) ? 'links' : photos.length ? 'folder' : 'none',
+    total: photos.length,
+    done: by('done'),
+    waiting: by('pending') + by('local'),
+    failed: by('failed'),
+  };
+}
+
+/**
+ * The row-by-row report (a page of it), problems first. One statement. `photos: 'missing'` is the
+ * listings that will have no photo or have one that failed (ADR 0102).
+ */
+export async function importReport(db: Db, actor: Actor, id: string, opts: { onlyProblems?: boolean; photos?: 'missing'; offset?: number; limit?: number } = {}): Promise<ImportReportRow[]> {
   const imp = await loadImport(db, actor, id);
   const rows = await db
     .select()
@@ -701,6 +757,9 @@ export async function importReport(db: Db, actor: Actor, id: string, opts: { onl
       and(
         eq(listingImportRow.importId, imp.id),
         ...(opts.onlyProblems ? [or(inArray(listingImportRow.status, ['error', 'duplicate', 'failed']), sql`jsonb_array_length(${listingImportRow.warnings}) > 0`)!] : []),
+        ...(opts.photos === 'missing'
+          ? [and(inArray(listingImportRow.status, ['valid', 'imported', 'updated']), sql`(jsonb_array_length(${listingImportRow.photos}) = 0 or ${listingImportRow.photos} @> '[{"status":"failed"}]')`)!]
+          : []),
       ),
     )
     .orderBy(asc(listingImportRow.rowNumber))
@@ -716,25 +775,31 @@ export async function importReport(db: Db, actor: Actor, id: string, opts: { onl
       warnings: (r.warnings as ImportReportRow['warnings']) ?? [],
       listingId: r.listingId ?? r.duplicateOfListingId,
       contactId: r.contactId ?? null,
-      photos: (r.photos as ImportReportRow['photos']) ?? [],
+      photos: (r.photos as PhotoEntry[]) ?? [],
+      photoSummary: photoSummary((r.photos as PhotoEntry[]) ?? []),
       address: c ? c.name : n?.property?.formattedAddress ?? null,
     };
   });
 }
 
-/** The report as a CSV to download: row, status, problems, warnings. */
+/** The report as a CSV to download: row, status, address, each listing's photos, problems, warnings. */
 export async function importReportCsv(db: Db, actor: Actor, id: string): Promise<string> {
   const rows = await importReport(db, actor, id, { limit: 5000 });
   const q = csvCell;
-  const lines = ['row,status,problems,warnings,photos_failed'];
+  const lines = ['row,status,address,photos_from,photos_in,photos_waiting,photos_failed,problems,warnings,failed_photos'];
   for (const r of rows) {
     lines.push(
       [
         String(r.rowNumber),
         r.status,
+        q(r.address ?? ''),
+        r.photoSummary.source,
+        String(r.photoSummary.done),
+        String(r.photoSummary.waiting),
+        String(r.photoSummary.failed),
         q(r.errors.map((e) => `${e.column}: ${e.message}`).join('; ')),
         q(r.warnings.map((e) => `${e.column}: ${e.message}`).join('; ')),
-        q(r.photos.filter((p) => p.status === 'failed').map((p) => `${p.url} (${p.error ?? 'failed'})`).join('; ')),
+        q(r.photos.filter((p) => p.status === 'failed').map((p) => `${p.url ?? p.path} (${p.error ?? 'failed'})`).join('; ')),
       ].join(','),
     );
   }

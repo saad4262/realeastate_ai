@@ -9,8 +9,9 @@ export function CompareChooser({ homes }: { homes: { id: string; title: string }
   if (homes.length < 2) return null;
   const toggle = (id: string) => setChosen((c) => (c.includes(id) ? c.filter((x) => x !== id) : c.length >= 4 ? c : [...c, id]));
   return (
-    <section className="mb-4 rounded-2xl border border-line bg-card p-4">
-      <p className="text-sm font-semibold text-ink">Compare homes side by side</p>
+    // Closed until wanted: the list is the page; comparing is one thing to do with it.
+    <details className="mt-lg rounded-lg border border-line-subtle bg-card p-md shadow-card">
+      <summary className="cursor-pointer text-body-md font-semibold text-ink">Compare homes side by side</summary>
       <ul className="m-0 mt-2 grid list-none gap-1 p-0 sm:grid-cols-2">
         {homes.map((h) => (
           <li key={h.id}>
@@ -30,6 +31,6 @@ export function CompareChooser({ homes }: { homes: { id: string; title: string }
           <span className="text-sm text-ink-soft">Choose two to four.</span>
         )}
       </p>
-    </section>
+    </details>
   );
 }

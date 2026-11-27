@@ -107,7 +107,7 @@ const listingRow = {
 beforeEach(() => vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://media.example.test'));
 afterEach(() => vi.unstubAllEnvs());
 
-describe('quick export (ADR 0101)', () => {
+describe('quick export (ADR 0104)', () => {
   it('refuses an actor with no agency, or a platform view, before reading or logging anything', async () => {
     for (const actor of [{ userId: 'x' }, { ...owner, via: 'platform' as const, viewerId: 'p' }] as Actor[]) {
       const f = fakeDb([]);
