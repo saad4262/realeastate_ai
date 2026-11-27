@@ -780,6 +780,7 @@ Download the template**) and make a copy to edit. In a spreadsheet, save as **CS
 | Y23 | A row with photo links in the CSV, and a folder for the same address | The links are used. The folder is listed under "has links in the file". |
 | Y24 | After the import, filter **Listings without photos**, and download the row report | Only listings with no photo or a failed one. The CSV has photos from / in / waiting / failed for every listing. |
 | Y25 | Time the upload of 500 photos on a home connection | Note the time. 1,000 listings × 20 photos ≈ 40 × that. |
+| Y26 | A row with a real street but a house number that does not exist there (e.g. `914 Henry Street, Pakenham`), and one with the right street in the wrong suburb | Each is a problem row: "Google found “…”, not this address — check the street number, street and suburb". Neither is imported with Google's pin. |
 
 ## Z — Google reviews, step 1 (ADR 0028)
 

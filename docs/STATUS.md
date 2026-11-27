@@ -8,6 +8,10 @@ are `docs/PLATFORM-PLAN.md` (section 14, with progress). Overwrite this file at 
 V1 production-readiness: about 12% (PLATFORM-PLAN 14). Steps 0–2 nearly done; step 3 (backups) next.
 Branches waiting for a PR and merge: `chore/dev-db-and-prod-guard` (production guard + 0001 extensions fix), `docs/platform-plan` (this).
 
+## Import: exact address (ADR 0029 amendment) — on `fix/import-exact-address`, NOT merged, 2026-11-26
+Google's nearest guess for an unknown address ("14 Henry St" → "214 Henry St") is no longer kept: the CSV dry run marks the row
+✗ with what Google found; the listing form's server geocode and the backfill leave it unpinned. Tests, smoke, break-tests done.
+
 ## Listing import: photos from a folder (ADR 0102) — LIVE: merge `8c8a17b` on `main`, all 4 Vercel builds Ready, 2026-11-25
 CSV + a dropped folder of photos, matched by the address in a folder name at any depth (or the listing id); the browser
 shrinks and uploads straight to Storage; every listing says what photos it got (links or folder). No migration.

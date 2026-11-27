@@ -335,3 +335,16 @@ mapping screen, chunks, lease, cron, report and the 30-day purge are shared.
 - **Assistant:** read tool `start_import` (`what`: listings | contacts) → an `import` frame with the
   upload form and the Sheet picker; prompt `assistant@v17`. It reads nothing and takes no file.
 - Smoke group "Imports: contacts and Google Sheets" (3 checks) written, not run (needs 0049).
+
+## Amendment — the address must be the one asked for (2026-11-26)
+
+Found in the ADR 0102 browser run: Google answers a number or street it does not know with the nearest one it does, as a
+street address ("14 Henry St, Pakenham" → "214 Henry St"; "2/6E Main St, Officer" → "34 Station St, Officer"; "3 Golden
+Wattle Ct, Berwick" → "43 Golden Wattle Ct, Cranbourne"). The dry run checked only that the answer was an address, so it
+kept another house's pin and formatted address, against §7 ("never guessed").
+
+`sameAddress` (`geo/places.ts`, pure): the number (when one is given) and the street (folded as `addressKey` folds it) must
+be the ones asked for, and the suburb or the postcode. The unit is not compared (Google seldom returns one); "Lot 12 Smith Rd"
+with no number matches "Smith Road". A row that fails is ✗ "Google found “…”, not this address — check the street number,
+street and suburb". The same check now guards the listing form's server-side geocode (`resolvePin`: no pin rather than the
+wrong one) and the backfill script. Unit tests (the four answers above), smoke check, break-tests red.
