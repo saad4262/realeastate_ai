@@ -16,6 +16,16 @@ passes ~10 entries, move the older ones to a new archive file.
   6 agency rows). Migration with `CONFIRM_PRODUCTION`; verified read-only. Merge `569792b`; the 4 live Vercel projects Ready.
 - `gh` is not on this shell's PATH: Vercel status read from GitHub's public commit-status API instead.
 
+## 2026-11-27 — Claude Code (Mac) — exact-address fix merged and live
+
+- The user: merge `fix/import-exact-address` into main and wait for Vercel; no migration, keep the 3 TEST agencies, do not
+  backfill or rewrite production pins (the old wrong pins are a separate task, not started).
+- `main` had moved 3 commits (saved homes, `0449613`); merged `--no-ff` on top as `3e2b132`, no conflicts. Re-run on the merge:
+  typecheck, lint, `pnpm test` (core 2583, AI 466), `pnpm --filter console build` and `--filter web build` (exit 0), smoke
+  `SMOKE_ONLY="Listing import"` 7/7 on dev. Pushed; all 4 Vercel production builds Ready.
+- Not checked: real Google answers for good addresses on production (fakes and unit cases only); production's existing pins.
+- Then the export merge `569792b` landed on top (it contains `3e2b132`); its Vercel builds are the live ones.
+
 ## 2026-11-25 (evening) — Claude Code (Mac) — ADR 0104 agency data export, phase 1
 
 - The user asked whether agencies and agents can download their data as CSV; I proposed quick + full export and three questions.
