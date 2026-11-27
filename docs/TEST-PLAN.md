@@ -2481,3 +2481,14 @@ Mock: `docs/mocks/home-search.html`. Public site, signed out unless said.
 | CZ17 | AI search: On, type a sentence, Enter | Opens `/chat` with it; the starters show when the box is empty |
 | CZ18 | Phone width (375 px) | Tabs scroll sideways; Filters and Search share a row under the box; no page scroll sideways |
 | CZ19 | An old link `/search?suburb=Pakenham&radius=10` and an old alert | Same results as before this change |
+
+## DA — A workflow stops when the person replies (ADR 0103)
+
+Console, as an agent with "Workflow emails" on. The engine side is in smoke ("Workflows: stop on reply").
+
+| # | Do | Expect |
+|---|---|---|
+| DA1 | Email Assistant: "When a lead comes in, send the Welcome template, wait 1 hour, then remind me to call" | The card has a line "If they reply: If they email or text back, every step still to come stops" |
+| DA2 | Same, adding "and carry on even if they reply" | The line reads "It carries on even if they email or text back" |
+| DA3 | Approve DA1; record a lead by hand; reply to the welcome email from the lead's inbox within the hour | No reminder rings; Automations → the workflow → the run shows the second step skipped, "Stopped: they emailed or texted back…", nothing remaining |
+| DA4 | A workflow on "a listing's status changes" | The card has no "If they reply" line |

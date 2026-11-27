@@ -49,8 +49,10 @@ export async function automationDetail(db: Db, actor: Actor, key: string): Promi
     return {
       ...base,
       runs: runs.map((r) => {
-        const done = r.steps.filter((s) => s.status === 'done').length;
-        return { id: r.id, status: r.status, at: r.at.toISOString(), finishedAt: null, total: r.steps.length, sent: done, failed: r.steps.filter((s) => s.status === 'failed').length, skipped: 0, remaining: Math.max(0, r.steps.length - done), detail: r.error, manual: false };
+        const n = (...st: string[]) => r.steps.filter((s) => st.includes(s.status)).length;
+        // A cancelled step will never run (a reply stopped it, ADR 0103, or a step before it failed): skipped, not remaining.
+        const stopped = r.steps.find((s) => s.status === 'cancelled' && s.error)?.error ?? null;
+        return { id: r.id, status: r.status, at: r.at.toISOString(), finishedAt: null, total: r.steps.length, sent: n('done'), failed: n('failed'), skipped: n('cancelled'), remaining: n('blocked', 'scheduled', 'running'), detail: r.error ?? stopped, manual: false };
       }),
     };
   }

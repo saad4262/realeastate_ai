@@ -391,6 +391,8 @@ export const createWorkflowInput = z
       })
       .strict()
       .optional(),
+    /** ADR 0103: false only when the person asks for it to carry on after a reply. Omitted = it stops. */
+    stop_on_reply: z.boolean().optional(),
     /** A W reference: replace that workflow (a new version) instead of making another. */
     replaces: workflowHandleSchema.optional(),
   })

@@ -280,6 +280,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
           },
           required: ['question', 'choices'],
         },
+        stop_on_reply: { type: 'boolean', description: 'Omit: when the person emails or texts back, every step still to come stops. false only when the person asks for it to carry on after a reply, or when replacing a workflow whose if_they_reply says it carries on.' },
         replaces: { type: 'string', description: 'A W reference, to change that workflow instead of making another.' },
       },
       required: ['name', 'trigger', 'actions'],

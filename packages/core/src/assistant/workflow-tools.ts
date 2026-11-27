@@ -107,14 +107,16 @@ export function specFrom(ctx: Pick<ToolContext, 'handles'>, input: z.infer<typeo
   }
   const own = actionsFrom(ctx, input.actions, '');
   if ('problem' in own) return own;
-  if (!input.decide) return { spec: { trigger, conditions, actions: own.actions } };
+  // ADR 0103: only "off" is stored, so a spec without it reads as on.
+  const reply = input.stop_on_reply === false ? { stop_on_reply: false } : {};
+  if (!input.decide) return { spec: { trigger, conditions, actions: own.actions, ...reply } };
   const choices: { label: string; actions: unknown[] }[] = [];
   for (const c of input.decide.choices) {
     const built = actionsFrom(ctx, c.actions, `choice “${c.label}”, `);
     if ('problem' in built) return built;
     choices.push({ label: c.label, actions: built.actions });
   }
-  return { spec: { trigger, conditions, actions: own.actions, decide: { question: input.decide.question, choices } } };
+  return { spec: { trigger, conditions, actions: own.actions, decide: { question: input.decide.question, choices }, ...reply } };
 }
 
 /** One list of the model's steps → the catalog's, references resolved. `where` names the choice in a problem. */
@@ -227,6 +229,7 @@ export async function proposeCreateWorkflow(ctx: ToolContext, input: z.infer<typ
         ]
       : words.then.map((s, i) => ({ label: `Then ${i + 1}`, value: s }))),
     ...(every.some((a) => a.type === 'wait_until') ? [{ label: 'Times', value: `On the agency’s clock: ${await agencyTimeZone(ctx.db, ctx.actor.agencyId!)}` }] : []),
+    ...(words.onReply ? [{ label: 'If they reply', value: words.onReply }] : []),
   ];
   const card: ProposalCard = {
     title: `${replaces ? 'Change' : 'Make'} the workflow “${input.name}”`,
@@ -265,6 +268,7 @@ export async function findWorkflows(ctx: ToolContext, label: string): Promise<To
         when: w.words.when,
         if: w.words.if,
         then: w.words.then,
+        ...(w.words.onReply ? { if_they_reply: w.words.onReply } : {}),
         runs_today: w.runsToday,
         ...(w.mayManage ? {} : { you_may_change_it: false }),
       })),

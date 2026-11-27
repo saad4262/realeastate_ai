@@ -5,3 +5,4 @@ export { createWorkflowDraft, type DraftFacts, type DraftWriter } from './drafts
 export { WORKFLOW_DECIDE_FEATURE, type RunDecision, type WorkflowDecider } from './decide';
 export * from './manage';
 export * from './library';
+export { repliedSinceRun, STOPPED_BY_REPLY } from './reply-stop';

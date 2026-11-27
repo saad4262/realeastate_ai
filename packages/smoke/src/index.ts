@@ -271,7 +271,7 @@ import {
 } from '@repo/core/assistant';
 import { assistantDeps, runAssistantTurn, type AssistantEvent } from '@repo/ai/assistant';
 import { DASHBOARD_EVALS } from '@repo/ai/evals/dashboard-phrases';
-import { listWaitingDrafts, runWorkflowTick, saveWorkflow, setWorkflowStatus } from '@repo/core/workflows';
+import { listWaitingDrafts, runWorkflowTick, saveWorkflow, setWorkflowStatus, STOPPED_BY_REPLY } from '@repo/core/workflows';
 import { runDealSync } from '@repo/core/deals';
 import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-switches';
 import { consumerSkillBlocks, listConsumerSkills, setConsumerSkill, usersWithConsumerSkillOff } from '@repo/core/consumer-skills';
@@ -7559,6 +7559,77 @@ async function main() {
       await runWorkflowTick(t, evening);
       assert((await runsOf(t, wf.id)).length === 3, 'turned on again but did not run');
       return 'template saved only on Approve (agency-wide); card reads "If Parramatta / Wait until the next 9:00 am / Sydney"; 8 pm lead → email due 09:00 next morning, not sent early; Bondi → no run; 5 km radius: Bondi no, Parramatta yes; paused → no run, on → runs';
+    }),
+  );
+
+  // ── ADR 0103: a reply stops the steps still to come ──────────────────────────────────────────
+  group('Workflows: stop on reply (ADR 0103)');
+
+  /** Two workflows on one new lead — one stops on a reply, one set to carry on — each: a reminder, an hour's wait, a reminder. */
+  async function replyFixture(t: Db) {
+    const steps = (n: string) => [{ type: 'remind_owner', text: `${n} first`, mail_me: false }, { type: 'wait', hours: 1 }, { type: 'remind_owner', text: `${n} second`, mail_me: false }];
+    const w = await workflowFixture(t, { trigger: { kind: 'lead.created', source: 'manual' }, conditions: [], actions: steps('Stops') });
+    await saveWorkflow(t, w.actor, { name: `Smoke carries on ${w.f.tag}`, scope: 'mine', spec: { trigger: { kind: 'lead.created', source: 'manual' }, conditions: [], actions: steps('Carries'), stop_on_reply: false } });
+    const lead = await createManualLead(t, w.actor, { contactId: w.f.contacts.p2, listingId: w.listingId, kind: 'enquiry', message: null });
+    const tick = await runWorkflowTick(t, new Date());
+    await runScheduledActions(t, {}, new Date());
+    assert(tick.runs === 2, `runs: ${JSON.stringify(tick)}`);
+    const bell = (text: string) => count(t, sql`select count(*)::int as n from notification where user_id = ${w.f.people.a1} and title = ${text}`);
+    assert((await bell('Stops first')) === 1 && (await bell('Carries first')) === 1, 'the first steps did not run');
+    const [th] = await t.execute<{ id: string }>(sql`select id from mail_thread where lead_id = ${lead.leadId}`);
+    const [num] = await t.execute<{ id: string }>(sql`
+      insert into phone_number (agency_id, user_id, e164, number_sid) values (${w.f.agencyId}, ${w.f.people.a1}, '+61480000103', ${`PNreply${w.f.tag}`}) returning id`);
+    // Inside one transaction now() never moves, so a message "after the run" is stamped a minute on.
+    const at = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
+    const mail = (direction: 'in' | 'out', when: string) =>
+      t.execute(sql`insert into mail_message (thread_id, agency_id, direction, status, from_email, subject, text, created_at)
+        values (${th!.id}, ${w.f.agencyId}, ${direction}, ${direction === 'in' ? 'received' : 'sent'}, 'p2@smoke.test', 'Re: your enquiry', 'Saturday works', ${when}::timestamptz)`);
+    const text = (when: string) =>
+      t.execute(sql`insert into sms_message (agency_id, phone_number_id, counterpart, contact_id, direction, body, status, created_at, updated_at)
+        values (${w.f.agencyId}, ${num!.id}, '+61400000002', ${w.f.contacts.p2}, 'in', 'Yes please', 'received', ${when}::timestamptz, ${when}::timestamptz)`);
+    const afterAnHour = async () => {
+      const report = await runScheduledActions(t, {}, new Date(Date.now() + 2 * 3_600_000));
+      const [run] = await runsOf(t, w.workflowId);
+      const [task] = await t.execute<{ status: string; error: string | null }>(sql`select status, error from assistant_task where id = ${run!.task_id}`);
+      const stepRows = await t.execute<{ status: string; error: string | null }>(sql`select status, error from proposed_action where task_id = ${run!.task_id} order by task_seq`);
+      return { report, task: task!, steps: stepRows, stopsSecond: await bell('Stops second'), carriesSecond: await bell('Carries second') };
+    };
+    return { at, mail, text, afterAnHour };
+  }
+  const assertStopped = (r: Awaited<ReturnType<Awaited<ReturnType<typeof replyFixture>>['afterAnHour']>>) => {
+    assert(r.stopsSecond === 0, 'the workflow that stops on a reply still ran its second step');
+    assert(r.carriesSecond === 1, 'the workflow set to carry on did not run its second step');
+    assert(r.report.stopped === 1, `report: ${JSON.stringify(r.report)}`);
+    assert(r.task.status === 'cancelled' && r.task.error === STOPPED_BY_REPLY, `task: ${JSON.stringify(r.task)}`);
+    assert(r.steps.map((s) => s.status).join() === 'done,cancelled' && r.steps[1]!.error === STOPPED_BY_REPLY, `steps: ${JSON.stringify(r.steps)}`);
+  };
+
+  await check('an email back on the lead’s conversation stops the rest of the run; a workflow set to carry on runs its next step', async () =>
+    inRollback(async (t) => {
+      const x = await replyFixture(t);
+      await x.mail('in', x.at(1));
+      assertStopped(await x.afterAnHour());
+      return 'email in → "Stops second" never rang, task and step cancelled "Stopped: they emailed or texted back…"; the carry-on workflow rang its second';
+    }),
+  );
+
+  await check('a text back from the contact stops it the same way', async () =>
+    inRollback(async (t) => {
+      const x = await replyFixture(t);
+      await x.text(x.at(1));
+      assertStopped(await x.afterAnHour());
+      return 'text in → stopped; the carry-on workflow ran its second step';
+    }),
+  );
+
+  await check('not replies: our own email out after the run, and a text from them before it — the run carries on', async () =>
+    inRollback(async (t) => {
+      const x = await replyFixture(t);
+      await x.mail('out', x.at(1));
+      await x.text(x.at(-60));
+      const r = await x.afterAnHour();
+      assert(r.report.stopped === 0 && r.stopsSecond === 1 && r.carriesSecond === 1, `stopped without a reply: ${JSON.stringify(r)}`);
+      return 'email out + an earlier text in → nothing stopped; both second steps rang';
     }),
   );
 

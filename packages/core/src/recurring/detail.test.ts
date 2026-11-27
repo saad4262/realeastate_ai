@@ -62,7 +62,15 @@ describe('automationDetail', () => {
     listEveryAutomation.mockResolvedValue([row({ key: `workflow:${ID}`, source: 'workflow' })]);
     workflowRuns.mockResolvedValue([{ id: 'w1', at: new Date(), status: 'started', error: null, decision: null, steps: [{ status: 'done' }, { status: 'scheduled' }, { status: 'failed' }] }]);
     const d = (await automationDetail({} as Db, agent, `workflow:${ID}`))!;
-    expect(d.runs[0]).toMatchObject({ total: 3, sent: 1, failed: 1, remaining: 2 });
+    expect(d.runs[0]).toMatchObject({ total: 3, sent: 1, failed: 1, remaining: 1 });
+  });
+
+  it('a run a reply stopped has nothing left: its cancelled steps are skipped, and it says why (ADR 0103)', async () => {
+    listEveryAutomation.mockResolvedValue([row({ key: `workflow:${ID}`, source: 'workflow' })]);
+    const why = 'Stopped: they emailed or texted back, so nothing more of this run was sent.';
+    workflowRuns.mockResolvedValue([{ id: 'w1', at: new Date(), status: 'started', error: null, decision: null, steps: [{ status: 'done', error: null }, { status: 'cancelled', error: why }, { status: 'cancelled', error: null }] }]);
+    const d = (await automationDetail({} as Db, agent, `workflow:${ID}`))!;
+    expect(d.runs[0]).toMatchObject({ total: 3, sent: 1, failed: 0, skipped: 2, remaining: 0, detail: why });
   });
 
   it('someone else’s AI skill shows, but not its runs', async () => {

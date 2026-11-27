@@ -28,6 +28,14 @@ describe('specFrom', () => {
       },
     });
   });
+  it('stores stop_on_reply only when it is off (ADR 0103)', () => {
+    const p = (over: object) => specFrom(ctx, { name: 'W', scope: 'mine', trigger: { kind: 'lead.created' }, conditions: [], actions: [{ type: 'remind_owner', text: 'x' }], ...over } as never);
+    expect(p({ stop_on_reply: false })).toMatchObject({ spec: { stop_on_reply: false } });
+    expect('stop_on_reply' in (p({}) as { spec: object }).spec).toBe(false);
+    expect('stop_on_reply' in (p({ stop_on_reply: true }) as { spec: object }).spec).toBe(false);
+    const decide = { question: 'Buy or sell?', choices: [{ label: 'Buy', actions: [{ type: 'remind_owner', text: 'b' }] }, { label: 'Sell', actions: [{ type: 'remind_owner', text: 's' }] }] };
+    expect(p({ decide, stop_on_reply: false })).toMatchObject({ spec: { decide: { question: 'Buy or sell?' }, stop_on_reply: false } });
+  });
   it('names what is missing or not a reference this conversation was given', () => {
     const p = (over: object) => specFrom(ctx, { name: 'W', scope: 'mine', trigger: { kind: 'lead.created' }, conditions: [], actions: [{ type: 'remind_owner', text: 'x' }], ...over } as never);
     expect(p({ trigger: { kind: 'lead.no_reply' } })).toEqual({ problem: 'trigger: no reply needs hours (6) or days (1 to 14)' });
