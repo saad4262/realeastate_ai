@@ -1,4 +1,4 @@
-# Status — 2026-11-25 (Claude Code, Mac)
+# Status — 2026-11-27 (Claude Code, Mac)
 
 Short on purpose: where things stand now. History is in `docs/SESSION.md` and `docs/archive/`. The plan and the V1 to-do list
 are `docs/PLATFORM-PLAN.md` (section 14, with progress). Overwrite this file at each handoff; do not append.
@@ -8,21 +8,18 @@ are `docs/PLATFORM-PLAN.md` (section 14, with progress). Overwrite this file at 
 V1 production-readiness: about 12% (PLATFORM-PLAN 14). Steps 0–2 nearly done; step 3 (backups) next.
 Branches waiting for a PR and merge: `chore/dev-db-and-prod-guard` (production guard + 0001 extensions fix), `docs/platform-plan` (this).
 
-## Agency data export (ADR 0104) — phases 1–3 BUILT on `feat/agency-data-export` (worktree `../realestate_ai-export`), NOT merged, 2026-11-25
-Brief `docs/briefs/agency-data-export.md` (the user's decisions locked). Quick CSV on Customers (+ notes), Listings, Leads, Calendar,
-Pipeline (`/api/exports/[dataset]`). Full export ("Download your data": `/settings/data` owners/admins, `/my-data` agents): migration
-**0109 `export_job` — applied on DEV only (110 migrations); production NOT migrated**; the job queue's `bulk` lane (now run by the minute
-tick) builds it a step a job: 13 CSVs → `data.zip` (+ README) → `photos-N.zip`, `documents-N.zip` (≤ 40 MB each) in the documents bucket
-under `exports/`; bell + email; 60 s signed link per part, asker only; deleted after 24 h (hourly sweep). Any member, their screens' scope;
-never a platform view; `data_exported` audit rows. New dependency: `fflate@0.8.3` (already in the lockfile) for core and smoke.
-Checked: `pnpm test` (core 2544, AI 462, db 20), typecheck, lint, console AND web builds, 26 guards broken and red; smoke on dev
-"Tenant isolation" 6/6 and "Data export" 1/1. **Browser, 2026-11-26: TEST-PLAN DA1–DA18 all pass** (`e2e/tests/data-export.spec.ts`,
-8/8, console production build on dev): real Storage upload, signed download and 24 h deletion; the ready email through Resend
-to its test inbox, `delivered`. Dev Storage left clean. NOT run: a large agency's timing. Waiting on the user: production backup,
-migration 0109, merge. Privacy policy must mention export.
-**Migration number clash:** `feat/workflow-stop-on-reply` (ADR 0103, worktree `realestate_ai-autom`, not merged) also has a `0109`
-(`0109_workflow_run_task_idx`). Whoever merges second renames theirs to 0110 and its journal idx; its `when` (1795774981727) is
-later than this one's (1795603754789), so drizzle still applies it after this. ADR renumbered 0101 → **0104** (0101–0103 taken on main/branches).
+## Agency data export (ADR 0104) — LIVE: merge `569792b` on `main`, 2026-11-27
+On the user's go: production backup `prod-20261127T104903Z.dump.enc` (145 tables, checked: no export_job, 6 agencies), migration
+**0109 `export_job` on production** (110 applied; read-only check: 14 columns, 3 indexes, RLS on, no policy), merge `--no-ff`, pushed.
+Vercel: admin, agent, agencyy, users Ready; the other five projects (`*-console*`, `realestate-ai-web`) fail on every commit, as before.
+Live: `/settings/data`, `/my-data` and `/api/exports/*` all ask for sign-in when signed out.
+- Quick CSV on Customers (+ notes), Listings, Leads, Calendar, Pipeline; full export ("Download your data") built by the minute tick's
+  new `bulk` lane into `exports/` in the documents bucket, bell + email, 60 s signed links for the asker, deleted after 24 h.
+- Checked before merge: `pnpm test` (core 2606, AI 466), typecheck, lint, console and web builds; smoke on dev; TEST-PLAN DA1–DA18
+  in a browser on dev (8/8, real Storage, Resend `delivered`). NOT done live: an export on production (no real agency asked yet).
+- **Migration number clash:** `feat/workflow-stop-on-reply` (ADR 0103, worktree `realestate_ai-autom`) also has a `0109`. It must be
+  renamed 0110 (file, journal idx, snapshot) before it merges; its `when` is later than this one's, so drizzle applies it after.
+- Later (the user): the privacy policy must mention export; a large agency's timing is not measured.
 
 ## Import: exact address (ADR 0029 amendment) — on `fix/import-exact-address`, NOT merged, 2026-11-26
 Google's nearest guess for an unknown address ("14 Henry St" → "214 Henry St") is no longer kept: the CSV dry run marks the row
