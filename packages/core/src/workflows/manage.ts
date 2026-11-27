@@ -201,8 +201,29 @@ export type WorkflowSummary = {
   triggerKind: TriggerKind | null;
   decides: boolean;
   runsToday: number;
+  /** ADR 0104: how its latest run went, for the AI Assistant to report; null when it never ran. */
+  lastRun: { at: Date; words: string } | null;
   mayManage: boolean;
 };
+
+type LastRunRow = { at: string; run: string; error: string | null; task: string | null; why: string | null };
+
+/** ADR 0104: a run's state in words, from the run and its task — never a count the model could get wrong. */
+export function lastRunWords(r: Omit<LastRunRow, 'at'>): string {
+  if (r.run === 'skipped' || r.run === 'failed') return `${r.run === 'skipped' ? 'did not run' : 'failed'}${r.error ? `: ${r.error}` : ''}`;
+  switch (r.task) {
+    case 'active':
+      return 'running now';
+    case 'done':
+      return 'finished every step';
+    case 'cancelled':
+      return `stopped${r.why ? `: ${r.why}` : ''}`;
+    case 'failed':
+      return `failed${r.why ? `: ${r.why}` : ''}`;
+    default:
+      return r.task ? `ended (${r.task})` : 'started';
+  }
+}
 
 /** This person's workflows — every one of the agency for an admin. Archived left out. */
 export async function listWorkflows(db: Db, actor: Actor, now = new Date()): Promise<WorkflowSummary[]> {
@@ -212,6 +233,9 @@ export async function listWorkflows(db: Db, actor: Actor, now = new Date()): Pro
       w: workflow,
       ownerName: sql<string>`coalesce(nullif(${user.name}, ''), ${user.email})`,
       runsToday: sql<number>`(select count(*)::int from workflow_run r where r.workflow_id = ${workflow.id} and r.created_at > ${new Date(now.getTime() - 86_400_000).toISOString()}::timestamptz)`,
+      // The latest run, by workflow_run_recent_idx: in this same statement, never one more per workflow.
+      lastRun: sql<LastRunRow | null>`(select json_build_object('at', r.created_at, 'run', r.status, 'error', r.error, 'task', t.status, 'why', t.error)
+        from workflow_run r left join assistant_task t on t.id = r.task_id where r.workflow_id = ${workflow.id} order by r.created_at desc limit 1)`,
     })
     .from(workflow)
     .innerJoin(user, eq(user.id, workflow.ownerId))
@@ -235,6 +259,7 @@ export async function listWorkflows(db: Db, actor: Actor, now = new Date()): Pro
       decides: parsed.success && Boolean(parsed.data.decide),
       stepTypes: parsed.success ? allActions(parsed.data).map((a) => a.type) : [],
       runsToday: Number(r.runsToday),
+      lastRun: r.lastRun ? { at: new Date(r.lastRun.at), words: lastRunWords(r.lastRun) } : null,
       mayManage: can(actor, 'workflow:manage', resource(r.w)),
     });
   }

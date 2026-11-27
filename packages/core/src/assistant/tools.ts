@@ -58,7 +58,7 @@ import { findBuyers } from './buyer-tools';
 import { findDeals } from './deal-tools';
 import { mayCreateImport } from '../imports/imports';
 import { findSkills, proposeChangeSkill, proposeSetUpSkill, proposeSwitchSkill } from './skill-tools';
-import { chatScopeRefusal, chatScopeSkillFor, templateChannel, type ChatScope } from './chat-scopes';
+import { chatScopeRefusal, chatScopeSkillFor, templateChannel, workflowStepSkills, type ChatScope } from './chat-scopes';
 import { platformSkill, skillOffMessage, skillsForToolCall } from '../skill-switches/catalog';
 import { openChatTool } from './open-chat';
 import { proposeSendTemplateSms } from './sms-tools';
@@ -278,10 +278,13 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
   const gates = skillsForToolCall(tool, parsed.data);
   // A skill chat's actions need that skill on, the switch Bulk email's own page asks (ADR 0088). Old chats are not changed.
   const chatSkill = ctx.chatScope ? chatScopeSkillFor(ctx.chatScope, tool) : undefined;
-  if (chatSkill && (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(tool)) {
+  const needs = new Set<SkillKey>(chatSkill && (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(tool) ? [chatSkill] : []);
+  // ADR 0104: a workflow — emails and texts in one — needs each step's switch on, the ones its runs will ask.
+  if (tool === 'create_workflow') for (const k of workflowStepSkills(parsed.data)) needs.add(k);
+  for (const key of needs) {
     // A `pair` skill needs the agency's switch AND this person's, which the set below cannot say.
-    if (!platformSkill(chatSkill).pair) gates.push(chatSkill);
-    else if (!(await isSkillOnForChat(ctx.db, actor, chatSkill))) return refused(`${skillOffMessage(chatSkill, holderOf(actor.membershipRole))} Nothing was done.`, label);
+    if (!platformSkill(key).pair) gates.push(key);
+    else if (!(await isSkillOnForChat(ctx.db, actor, key))) return refused(`${skillOffMessage(key, holderOf(actor.membershipRole))} Nothing was done.`, label);
   }
   const off = gates.length ? await (ctx.skillsOff ?? (() => skillsOffForActor(ctx.db, actor)))() : null;
   for (const key of gates) {

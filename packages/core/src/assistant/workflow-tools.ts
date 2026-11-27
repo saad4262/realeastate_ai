@@ -190,7 +190,7 @@ function actionsFrom(ctx: Pick<ToolContext, 'handles'>, list: z.infer<typeof cre
   return { actions };
 }
 
-const OTHER_CHANNEL = 'That workflow also sends by the other channel, so it is not part of this chat. It can be changed on the Workflows page. Nothing was proposed.';
+const OTHER_CHANNEL = 'That workflow also sends by the other channel, so it is not part of this chat. The AI Assistant on the Overview page can change it. Nothing was proposed.';
 
 export async function proposeCreateWorkflow(ctx: ToolContext, input: z.infer<typeof createWorkflowInput>, label: string): Promise<ToolOutcome> {
   const replaces = input.replaces ? resolveHandle(ctx.handles, input.replaces, 'workflow') : null;
@@ -270,6 +270,8 @@ export async function findWorkflows(ctx: ToolContext, label: string): Promise<To
         then: w.words.then,
         ...(w.words.onReply ? { if_they_reply: w.words.onReply } : {}),
         runs_today: w.runsToday,
+        // ADR 0104: how the latest run went, so the AI Assistant can answer "how are my automations doing?".
+        last_run: w.lastRun ? `${new Intl.DateTimeFormat('en-AU', { timeZone: ctx.timeZone, dateStyle: 'medium', timeStyle: 'short' }).format(w.lastRun.at)}: ${w.lastRun.words}` : 'never ran',
         ...(w.mayManage ? {} : { you_may_change_it: false }),
       })),
     },

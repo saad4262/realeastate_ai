@@ -210,7 +210,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   },
   {
     name: 'find_workflows',
-    description: 'The workflows this person can see — their own, and for an owner or admin every workflow of the agency — each with a W reference, whether it is on, what starts it, its conditions and its steps in words, and how many times it ran today.',
+    description: 'The workflows this person can see — their own, and for an owner or admin every workflow of the agency — each with a W reference, whether it is on, what starts it, its conditions and its steps in words, what a reply does, how many times it ran today, and how its latest run went (running, finished, stopped, failed, and why).',
     input_schema: { type: 'object', additionalProperties: false, properties: {} },
   },
   {

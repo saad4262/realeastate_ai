@@ -3,6 +3,16 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-27 — Claude Code (Mac) — ADR 0103 stop on reply; ADR 0104 the AI Assistant runs workflows
+
+- The user asked whether Overview's AI Assistant (the home chat on `/overview` and the agent's `/assistant`) can run automations like "new lead → email → later a text" and hold every skill's context. It could not: Email and SMS chats each refused the other channel; Overview only listed workflows. Researched GoHighLevel, HubSpot, Follow Up Boss (pauses on reply), Salesforce Agentforce (supervisor, ~7 specialists). The user said go on three steps, in order.
+- Step 1, ADR 0103: a workflow's later steps stop when the run's person emails or texts back after the run began (on by default, saved workflows too; `stop_on_reply: false` to carry on). Checked per step inside its claim transaction; the step and task end `cancelled` "Stopped: they emailed or texted back…". Migration 0109 (index `workflow_run(task_id)`), applied on DEV only. Run history: cancelled steps count as skipped, not remaining (a failed run showed them as remaining too).
+- Steps 2+3, ADR 0104: Overview holds `create_workflow` / `change_workflow`, any channel; every step's switch is asked when the card is made, in any chat; `find_workflows` reports the latest run in words in the same statement; prompt `chat-scope@v2`; help page text.
+- Branch `feat/workflow-stop-on-reply` (worktree `../realestate_ai-autom`, from `origin/main` 0449613). NOT merged, NOT on production.
+- Checks: `pnpm test` (core, AI 466, db 20), typecheck, lint; smoke group "Workflows: stop on reply (ADR 0103)" on dev; break-tests red (unit and smoke). NOT run: a live model on the new prompt, TEST-PLAN DA/DB in a browser.
+- Migration number: `feat/agency-data-export` also has a 0109 (and DEV already ran it). Whichever merges second renumbers.
+- Not built: stopping one run already part-way from the chat; pausing a workflow does not stop its runs in flight.
+
 ## 2026-11-25 (evening) — Claude Code (Mac) — listing import: photos from a folder (ADR 0102, core)
 
 - The user: importing 1,000 listings by CSV left every photo to upload by hand. Researched how bulk tools do it (Shopify

@@ -3,7 +3,8 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import type { SQL } from 'drizzle-orm';
 import type { DbOrTx } from '@repo/db';
 import { specInWords, stopsOnReply, workflowSpecSchema } from './catalog';
-import { repliedSinceRun } from './reply-stop';
+import { repliedSinceRun, STOPPED_BY_REPLY } from './reply-stop';
+import { lastRunWords } from './manage';
 
 /** ADR 0103: a reply from the run's person stops the steps still to come. The query's behaviour is in smoke. */
 
@@ -57,5 +58,17 @@ describe('stop_on_reply in the spec', () => {
     expect(specInWords(listing).onReply).toBeUndefined();
     const newCaller = workflowSpecSchema.parse({ ...base, trigger: { kind: 'call.missed', caller: 'new' } });
     expect(specInWords(newCaller).onReply).toBeUndefined();
+  });
+});
+
+describe('lastRunWords (ADR 0104: what the AI Assistant reports)', () => {
+  const r = (run: string, task: string | null, why: string | null = null, error: string | null = null) => lastRunWords({ run, task, why, error });
+  it('says how the latest run went, with the reason it carries', () => {
+    expect(r('started', 'active')).toBe('running now');
+    expect(r('started', 'done')).toBe('finished every step');
+    expect(r('started', 'cancelled', STOPPED_BY_REPLY)).toBe(`stopped: ${STOPPED_BY_REPLY}`);
+    expect(r('started', 'failed', 'Step 2: no consent')).toBe('failed: Step 2: no consent');
+    expect(r('skipped', null, null, 'Not run: “Workflow texts” is switched off in Skills.')).toBe('did not run: Not run: “Workflow texts” is switched off in Skills.');
+    expect(r('failed', null)).toBe('failed');
   });
 });

@@ -271,7 +271,7 @@ import {
 } from '@repo/core/assistant';
 import { assistantDeps, runAssistantTurn, type AssistantEvent } from '@repo/ai/assistant';
 import { DASHBOARD_EVALS } from '@repo/ai/evals/dashboard-phrases';
-import { listWaitingDrafts, runWorkflowTick, saveWorkflow, setWorkflowStatus, STOPPED_BY_REPLY } from '@repo/core/workflows';
+import { listWaitingDrafts, listWorkflows, runWorkflowTick, saveWorkflow, setWorkflowStatus, STOPPED_BY_REPLY } from '@repo/core/workflows';
 import { runDealSync } from '@repo/core/deals';
 import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-switches';
 import { consumerSkillBlocks, listConsumerSkills, setConsumerSkill, usersWithConsumerSkillOff } from '@repo/core/consumer-skills';
@@ -7594,7 +7594,7 @@ async function main() {
       const stepRows = await t.execute<{ status: string; error: string | null }>(sql`select status, error from proposed_action where task_id = ${run!.task_id} order by task_seq`);
       return { report, task: task!, steps: stepRows, stopsSecond: await bell('Stops second'), carriesSecond: await bell('Carries second') };
     };
-    return { at, mail, text, afterAnHour };
+    return { w, at, mail, text, afterAnHour };
   }
   const assertStopped = (r: Awaited<ReturnType<Awaited<ReturnType<typeof replyFixture>>['afterAnHour']>>) => {
     assert(r.stopsSecond === 0, 'the workflow that stops on a reply still ran its second step');
@@ -7609,7 +7609,10 @@ async function main() {
       const x = await replyFixture(t);
       await x.mail('in', x.at(1));
       assertStopped(await x.afterAnHour());
-      return 'email in → "Stops second" never rang, task and step cancelled "Stopped: they emailed or texted back…"; the carry-on workflow rang its second';
+      // ADR 0104: what the AI Assistant reports, read in the list's one statement.
+      const mine = (await listWorkflows(t, x.w.actor)).find((wf) => wf.id === x.w.workflowId);
+      assert(mine?.lastRun?.words === `stopped: ${STOPPED_BY_REPLY}`, `last run: ${JSON.stringify(mine?.lastRun)}`);
+      return 'email in → "Stops second" never rang, task and step cancelled "Stopped: they emailed or texted back…"; the carry-on workflow rang its second; find_workflows\' last run says "stopped: …"';
     }),
   );
 
@@ -7630,6 +7633,19 @@ async function main() {
       const r = await x.afterAnHour();
       assert(r.report.stopped === 0 && r.stopsSecond === 1 && r.carriesSecond === 1, `stopped without a reply: ${JSON.stringify(r)}`);
       return 'email out + an earlier text in → nothing stopped; both second steps rang';
+    }),
+  );
+
+  await check('ADR 0104: one workflow may email and then text — the server saves it, and lists both channels', async () =>
+    inRollback(async (t) => {
+      const w = await workflowFixture(t, { trigger: { kind: 'lead.created', source: 'manual' }, conditions: [], actions: [{ type: 'remind_owner', text: 'x', mail_me: false }] }, 'agency', 'owner');
+      const mail = await createEmailTemplate(t, w.actor, { channel: 'email', name: `Mixed mail ${w.f.tag}`, subject: 'Thanks', body: 'Hi {{first_name}}' });
+      const sms = await createEmailTemplate(t, w.actor, { channel: 'sms', name: `Mixed sms ${w.f.tag}`, body: 'Hi {{first_name}}' });
+      const spec = { trigger: { kind: 'lead.created', source: 'manual' }, conditions: [], actions: [{ type: 'send_template_email', template_id: mail.id }, { type: 'wait', hours: 2 }, { type: 'send_template_sms', template_id: sms.id }] };
+      const { id } = await saveWorkflow(t, w.actor, { name: `Smoke mixed ${w.f.tag}`, scope: 'agency', spec });
+      const listed = (await listWorkflows(t, w.actor)).find((wf) => wf.id === id);
+      assert(listed?.stepTypes.join() === 'send_template_email,wait,send_template_sms' && listed.lastRun === null, `listed: ${JSON.stringify(listed)}`);
+      return 'email → wait 2 h → text saved as one workflow; listed with both steps; last run: never';
     }),
   );
 

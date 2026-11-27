@@ -2492,3 +2492,17 @@ Console, as an agent with "Workflow emails" on. The engine side is in smoke ("Wo
 | DA2 | Same, adding "and carry on even if they reply" | The line reads "It carries on even if they email or text back" |
 | DA3 | Approve DA1; record a lead by hand; reply to the welcome email from the lead's inbox within the hour | No reminder rings; Automations → the workflow → the run shows the second step skipped, "Stopped: they emailed or texted back…", nothing remaining |
 | DA4 | A workflow on "a listing's status changes" | The card has no "If they reply" line |
+
+## DB — The AI Assistant builds and runs workflows (ADR 0104)
+
+Console Overview (`/overview` or the agent's `/assistant`), "Workflow emails" and "Workflow texts" on, an email and an SMS template saved.
+
+| # | Do | Expect |
+|---|---|---|
+| DB1 | "When a new lead comes in, email them the Welcome template, then text them the Hi template 2 hours later" | One card in this chat: When / Then 1 email / Then 2 wait 2 hours / Then 3 text / If they reply; no "open the Email chat" button |
+| DB2 | Approve DB1 | Saved and on; Skills → Automations lists it |
+| DB3 | "How are my automations doing?" | Each workflow with its state and latest run in words ("never ran", "stopped: …"), no made-up counts |
+| DB4 | "Pause the new-lead one", then "turn it back on" | A card each; after Approve, Automations shows it paused, then on |
+| DB5 | Switch "Workflow texts" off for yourself, repeat DB1 | Refused: the skill is switched off; nothing proposed |
+| DB6 | "Email my buyers list now" | A button to the Email chat (a send now is still that chat's) |
+| DB7 | Email chat: ask for a workflow that also texts | Refused there, as before |
