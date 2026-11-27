@@ -91,6 +91,21 @@ export async function putDocumentObject(key: string, bytes: Uint8Array, contentT
 }
 
 /**
+ * An export part or CSV the SERVER built (ADR 0104 phase 3), under `exports/`. Overwrites: a job step that runs
+ * twice writes the same key again. Never a file a person uploaded, so there is no type to sniff.
+ */
+export async function putExportObject(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+  if (!key.startsWith('exports/')) throw new DocumentStorageError('Export files live under exports/');
+  const res = await fetch(`${root()}/object/${bucket()}/${key}`, {
+    method: 'POST',
+    headers: { ...headers(), 'content-type': contentType, 'x-upsert': 'true' },
+    body: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) throw new DocumentStorageError(`Storage refused the export file (HTTP ${res.status})`);
+}
+
+/**
  * A link that opens the file for SECONDS (default 60) and names it `filename` on download.
  * Short on purpose: it is handed to one person who was just allowed to see the row, and a
  * forwarded link should be dead by the time anyone else clicks it.

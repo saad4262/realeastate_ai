@@ -194,7 +194,7 @@ export const SHELLS: Record<ShellSurface, ShellConfig> = {
         ],
       },
       { label: 'Money', items: [{ href: '/my-commission', label: 'My commission', icon: 'account_balance' }] },
-      { label: 'Settings', items: [{ href: '/my-integrations', label: 'Connectors', icon: 'hub' }, SECURITY, SIGN_OUT] },
+      { label: 'Settings', items: [{ href: '/my-integrations', label: 'Connectors', icon: 'hub' }, { href: '/my-data', label: 'My data', icon: 'download' }, SECURITY, SIGN_OUT] },
     ],
     openByDefault: 'Daily work',
     brandFallback: 'Agent desk',

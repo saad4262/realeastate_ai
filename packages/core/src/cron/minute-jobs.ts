@@ -18,6 +18,7 @@ import { pullInbound, PULL_WINDOW_HOURS } from '../phone/pull-inbound';
 import { creditUsageAlerts } from '../billing/alerts';
 import { billingReconcileHandler, enqueueBillingReconcile, stripeEventHandler } from '../billing/service';
 import type { StripeApi } from '../billing/stripe';
+import { EXPORT_JOB_KIND, expireExports, exportJobHandler, realExportDeps } from '../exports/full';
 
 /**
  * The every-minute tick's jobs (ADR 0035, batched by ADR 0073), in the order time matters most. Each
@@ -36,6 +37,8 @@ export const MINUTE_BATCH = {
   smsBatches: 20,
   automationSlices: 3,
   urgentJobs: 20,
+  /** Full data exports (ADR 0104): one step each, a few seconds to ~25 s; one agency at a time per round. */
+  bulkJobs: 2,
 } as const;
 
 export type MinuteDeps = {
@@ -204,6 +207,22 @@ export function minuteJobs(db: Db, deps: MinuteDeps, now: () => Date = () => new
         const r = await runJobs(db, { 'sms.reconcile': smsReconcileHandler(deps.phone), 'stripe.event': stripeEventHandler({ stripe: deps.stripe ?? null }), 'billing.reconcile': billingReconcileHandler({ stripe: deps.stripe ?? null }) }, { lane: 'urgent', limit: MINUTE_BATCH.urgentJobs, now });
         return { result: { claimed: r.claimed, done: r.done, retried: r.retried, dead: r.dead }, more: r.more };
       },
+    },
+    {
+      // The bulk lane (ADR 0104 phase 3): a member's full data export, one step a job. Last, so it only uses what is left.
+      name: 'bulkJobs',
+      mode: 'drain',
+      run: async () => {
+        const r = await runJobs(db, { [EXPORT_JOB_KIND]: exportJobHandler(realExportDeps(deps.reminders.notice ?? undefined)) }, { lane: 'bulk', limit: MINUTE_BATCH.bulkJobs, perAgency: 1, now });
+        return { result: { claimed: r.claimed, done: r.done, retried: r.retried, dead: r.dead }, more: r.more };
+      },
+    },
+    {
+      // Export files are kept 24 hours.
+      name: 'exportExpiry',
+      mode: 'once',
+      everyMinutes: 60,
+      run: async () => ({ result: await expireExports(db, { ...realExportDeps(), now }), more: false }),
     },
   ];
 }

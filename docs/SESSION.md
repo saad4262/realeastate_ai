@@ -3,6 +3,46 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-25 (evening) — Claude Code (Mac) — ADR 0104 agency data export, phase 1
+
+- The user asked whether agencies and agents can download their data as CSV; I proposed quick + full export and three questions.
+  Answers (via Cursor brief `docs/briefs/agency-data-export.md`): agents and admins both, scoped; full bodies; real files in the zip.
+- Built phase 1 on `feat/agency-data-export` from `origin/main` (`ddd517e`), in worktree `../realestate_ai-export` (parallel sessions).
+  Found on the way: `audit_log` (0098) already exists, so no migration; ADR 0093's closure export is the operator's, kept separate.
+- Decision of mine, in the ADR: `data:export` is any member including read-only (they already see those rows); a platform view
+  is refused. Listings for an admin are the whole book on either surface (by `listing:read_all`, not by which console).
+- First try changed `recordAudit` to return the id: six tests of other callers broke (their fakes have no `.returning`). Reverted;
+  the export inserts its own row.
+- Verified: core 2532 / AI 462 / rest green, typecheck, lint, full console build; 10 guards broken on purpose, each red, restored.
+  NOT run: smoke (new checks: export = screens per role, audit counted; and both exports in the isolation reads), browser, dev SQL.
+- Then, on the user's "continue": phase 2 (Leads, Appointments, Deals, Notes), one entry per dataset in `exports/quick.ts`.
+  Deals export every status (the board shows open ones); notes have no page, so "Export notes" sits on Customers.
+- Smoke "Tenant isolation" on dev (`.env.local` checked: DB URLs are `jhiale…`; the group makes no HTTP calls, though the
+  HTTP targets point at the Vercel sites): first run 5/6, my helper choked on a header-only file (A2 has no listings);
+  fixed, second run 6/6. 8 more guards broken in unit tests, each red. The smoke check itself was not broken on purpose.
+- Not merged. Phase 3 needs a migration: asked the user.
+- Then, on the user's "phase 3 dev start kar do": the full export. Reused the job queue (`job`, a new `bulk` lane in the tick),
+  the documents bucket (`exports/` prefix, so no new bucket; checked on dev: no size or type limit at bucket level) and every scope
+  helper (`numberScopeSql`, `threadScopeFilters`, `documentScopeFilters`, `privateActivityVisibleSql`). Migration 0109 applied on dev
+  with `db:migrate` (`.env.local` checked: `jhiale…`; no dev server). Then the migration-rules test asked for the lock timeout and
+  `IF NOT EXISTS`; added to the file after it was applied on dev (same table and indexes; drizzle does not re-run it).
+- Guards that caught my misses: help guide lines for the two new pages, the schema classification, the tick's job list, and a
+  document title that kept `..` in its file name (no slash, so no traversal, but fixed).
+- Smoke on dev: "Tenant isolation" 6/6 (38 B tables unchanged), "Data export" 1/1: A1 data+photos+documents in 17 steps, A2 data only,
+  team owner-only, 3 bells, 3 audit rows, every file gone at 24 h. ~5 s a step from this laptop through the pooler.
+- NOT done: browser, a real Storage upload, Resend, production migration, merge.
+- 2026-11-26, the user: test DA1–DA18 in a browser, with a real Storage upload and a real Resend email, and report before
+  production. Wrote `e2e/tests/data-export.spec.ts` on the e2e world (dev), and `smoke/src/run-export-jobs.ts` to run only the
+  bulk lane (the whole minute tick would run every due job on dev). The owner's address is swapped in OUR table to
+  `delivered+<tag>@resend.dev` for the one email and put back; Resend's API then reports it `delivered`.
+- Found on the way: notice emails (this one, failed texts, credit alerts) are NOT held by `EMAIL_DEV_ALLOWLIST` on dev — that
+  gate is per caller (template, compose). Pre-existing; told the user. Also: "Deleted <date>" under a ready export read as if it
+  was gone: now "Kept until <date>".
+- My test mistakes, fixed in the test, not the product: buyers made by seeded leads; an agent sees the enquirer through their
+  listing; `getByText('Ready')` matched "ready" in the subtitle; the job ran before the request's row existed. The dev server's
+  first-visit compile cancelled downloads, so the run uses `next start`. 8/8 on the 15th run.
+- Failed runs left 21 export files in dev Storage (their agencies already gone); deleted, `exports/` now empty, no e2e files left.
+
 ## 2026-11-26 — Claude Code (Mac) — import: an address must be the one asked for; dev test data cleared
 
 - The user: fix the address bug found in the ADR 0102 run on its own branch, and clear the test data from dev.

@@ -124,6 +124,7 @@
     "./phone": "./src/phone/index.ts",
     "./cron": "./src/cron/index.ts",
     "./audit": "./src/audit/index.ts",
+    "./exports": "./src/exports/index.ts",
     "./lifecycle": "./src/lifecycle/index.ts",
     "./observability/health": "./src/observability/health.ts",
     "./jobs": "./src/jobs/index.ts",
@@ -142,6 +143,7 @@
   "dependencies": {
     "@repo/db": "workspace:*",
     "drizzle-orm": "^0.38.3",
+    "fflate": "0.8.3",
     "libpg-query": "18.1.5",
     "mammoth": "1.13.0",
     "read-excel-file": "9.3.10",

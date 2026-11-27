@@ -374,6 +374,13 @@ export function ListingTable({
           <p className={styles.sub}>{subtitle}</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
+          {/* ADR 0104: every listing in this member's scope, in the import's own columns. */}
+          <a href="/api/exports/listings" className={styles.add} download>
+            <span className={styles.glyphSm} aria-hidden>
+              download
+            </span>
+            Export CSV
+          </a>
           <Link href={newHref.replace(/\/new$/, '/import')} className={styles.add} prefetch={false}>
             <span className={styles.glyphSm} aria-hidden>
               upload_file

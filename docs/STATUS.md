@@ -8,6 +8,22 @@ are `docs/PLATFORM-PLAN.md` (section 14, with progress). Overwrite this file at 
 V1 production-readiness: about 12% (PLATFORM-PLAN 14). Steps 0–2 nearly done; step 3 (backups) next.
 Branches waiting for a PR and merge: `chore/dev-db-and-prod-guard` (production guard + 0001 extensions fix), `docs/platform-plan` (this).
 
+## Agency data export (ADR 0104) — phases 1–3 BUILT on `feat/agency-data-export` (worktree `../realestate_ai-export`), NOT merged, 2026-11-25
+Brief `docs/briefs/agency-data-export.md` (the user's decisions locked). Quick CSV on Customers (+ notes), Listings, Leads, Calendar,
+Pipeline (`/api/exports/[dataset]`). Full export ("Download your data": `/settings/data` owners/admins, `/my-data` agents): migration
+**0109 `export_job` — applied on DEV only (110 migrations); production NOT migrated**; the job queue's `bulk` lane (now run by the minute
+tick) builds it a step a job: 13 CSVs → `data.zip` (+ README) → `photos-N.zip`, `documents-N.zip` (≤ 40 MB each) in the documents bucket
+under `exports/`; bell + email; 60 s signed link per part, asker only; deleted after 24 h (hourly sweep). Any member, their screens' scope;
+never a platform view; `data_exported` audit rows. New dependency: `fflate@0.8.3` (already in the lockfile) for core and smoke.
+Checked: `pnpm test` (core 2544, AI 462, db 20), typecheck, lint, console AND web builds, 26 guards broken and red; smoke on dev
+"Tenant isolation" 6/6 and "Data export" 1/1. **Browser, 2026-11-26: TEST-PLAN DA1–DA18 all pass** (`e2e/tests/data-export.spec.ts`,
+8/8, console production build on dev): real Storage upload, signed download and 24 h deletion; the ready email through Resend
+to its test inbox, `delivered`. Dev Storage left clean. NOT run: a large agency's timing. Waiting on the user: production backup,
+migration 0109, merge. Privacy policy must mention export.
+**Migration number clash:** `feat/workflow-stop-on-reply` (ADR 0103, worktree `realestate_ai-autom`, not merged) also has a `0109`
+(`0109_workflow_run_task_idx`). Whoever merges second renames theirs to 0110 and its journal idx; its `when` (1795774981727) is
+later than this one's (1795603754789), so drizzle still applies it after this. ADR renumbered 0101 → **0104** (0101–0103 taken on main/branches).
+
 ## Import: exact address (ADR 0029 amendment) — on `fix/import-exact-address`, NOT merged, 2026-11-26
 Google's nearest guess for an unknown address ("14 Henry St" → "214 Henry St") is no longer kept: the CSV dry run marks the row
 ✗ with what Google found; the listing form's server geocode and the backfill leave it unpinned. Tests, smoke, break-tests done.

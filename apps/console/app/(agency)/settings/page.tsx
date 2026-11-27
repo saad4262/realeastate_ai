@@ -22,6 +22,10 @@ export default function SettingsPage() {
           <Link href="/settings/audit" className={contactStyles.name}>Audit log →</Link>
           <p className={contactStyles.note}>Who changed the team, sent invites, deleted listings or resumed sends, and when. Owners and admins.</p>
         </div>
+        <div className={contactStyles.section}>
+          <Link href="/settings/data" className={contactStyles.name}>Download your data →</Link>
+          <p className={contactStyles.note}>Everything in the agency as spreadsheets, with the photos and documents, in zip files. Kept 24 hours.</p>
+        </div>
       </div>
     </div>
   );

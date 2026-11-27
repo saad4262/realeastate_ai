@@ -3791,6 +3791,39 @@ export const auditLog = pgTable(
 );
 
 /**
+ * A member's "Download all my data" (ADR 0104 phase 3): built by the job queue one step at a time, in their scope.
+ * `step` is the next step to run, `cursor` the last file id done inside a files step. `objects` is every storage
+ * key written (deleted at expiry or on failure); `parts` the zips the member downloads; `counts` rows per CSV.
+ */
+export const exportJob = pgTable(
+  'export_job',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_v7()`),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agency.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    /** queued → building → ready → expired, or failed. */
+    status: varchar('status', { length: 12 }).notNull().default('queued'),
+    step: integer('step').notNull().default(0),
+    cursor: text('cursor'),
+    objects: jsonb('objects').$type<string[]>().notNull().default([]),
+    parts: jsonb('parts').$type<{ key: string; name: string; bytes: number }[]>().notNull().default([]),
+    counts: jsonb('counts').$type<Record<string, number>>().notNull().default({}),
+    error: text('error'),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index('export_job_user_idx').on(t.agencyId, t.userId, desc(t.createdAt)),
+    index('export_job_expiry_idx').on(t.expiresAt).where(sql`status = 'ready'`),
+  ],
+);
+
+/**
  * Every change a platform admin made (ADR 0050): suspending or reactivating an agency, its plan and
  * trial, blocking a member, a new owner. Written in the same transaction as the change.
  */

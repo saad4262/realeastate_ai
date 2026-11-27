@@ -7,7 +7,7 @@ import { can, type Actor } from '../permissions';
  * The agency's audit log (PLATFORM-PLAN 1.20). Callers write inside the transaction that makes the change, so
  * a change and its record land together or not at all. `detail` holds field names and ids, never personal values.
  */
-export type AuditAction = 'member_removed' | 'member_restored' | 'member_edited' | 'invite_sent' | 'invite_withdrawn' | 'invite_claimed' | 'listing_deleted' | 'sends_paused' | 'sends_resumed' | 'agency_closed';
+export type AuditAction = 'member_removed' | 'member_restored' | 'member_edited' | 'invite_sent' | 'invite_withdrawn' | 'invite_claimed' | 'listing_deleted' | 'sends_paused' | 'sends_resumed' | 'agency_closed' | 'data_exported';
 
 export type AuditEntry = {
   agencyId: string;
@@ -80,6 +80,12 @@ export function auditSentence(r: Pick<AuditRow, 'action' | 'subjectName' | 'deta
       return 'Resumed sends';
     case 'agency_closed':
       return 'Closed the agency';
+    case 'data_exported': {
+      if (d.dataset === 'all') return `Asked for a full data export${typeof d.rows === 'number' ? ` (${d.rows} rows)` : ''}`;
+      const what = typeof d.dataset === 'string' ? d.dataset : 'data';
+      const rows = typeof d.rows === 'number' ? `${d.rows} row${d.rows === 1 ? '' : 's'}` : 'rows not counted';
+      return `Downloaded ${what} as CSV (${rows}${d.complete === false ? ', stopped before the end' : ''})`;
+    }
     default:
       return r.action;
   }
