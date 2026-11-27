@@ -3,6 +3,19 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-27 — Claude Code (Mac) — ADR 0104 agency data export LIVE
+
+- The user's go: production on `feat/agency-data-export` only — backup, migration 0109, push, merge, wait for Vercel; no
+  `db:reset`, no smoke on production, no real people emailed, no Overview-manager / stop-on-reply work.
+- `main` had moved 20 commits: ADR 0101 and 0102 were taken (smart search, photo folder) and 0103 is on a branch, so the export ADR
+  is now **0104** (only the lines this branch added were renumbered; smart search keeps 0101). Merged main twice (it moved again).
+- Found: `feat/workflow-stop-on-reply` also has migration 0109 (not merged). Its `when` is later than mine, so applying mine first
+  is safe; it must rename to 0110 before merging. Noted in STATUS, the branch not touched.
+- Prod vs dev confirmed read-only before anything: prod `xjklpo…` 109 migrations, no export_job, 6 agencies; dev `jhiale…` 111.
+- Backup `prod-20261127T104903Z.dump.enc` (backup.sh with prod DIRECT_URL in the process env only; dump checked: no export_job,
+  6 agency rows). Migration with `CONFIRM_PRODUCTION`; verified read-only. Merge `569792b`; the 4 live Vercel projects Ready.
+- `gh` is not on this shell's PATH: Vercel status read from GitHub's public commit-status API instead.
+
 ## 2026-11-25 (evening) — Claude Code (Mac) — ADR 0104 agency data export, phase 1
 
 - The user asked whether agencies and agents can download their data as CSV; I proposed quick + full export and three questions.
