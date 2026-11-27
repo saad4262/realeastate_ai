@@ -1,6 +1,7 @@
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import { listing, placeCache, property, type Db } from '@repo/db';
 import { publicListing } from '../listings/search-listings';
+import { normaliseStreet } from '../listings/address-key';
 import { googleGeoProvider, isGeoProviderConfigured } from './provider-google';
 import {
   addressQuery,
@@ -285,6 +286,27 @@ export async function reverseGeocode(
   return place;
 }
 
+const plain = (s: string | null | undefined) => (s ?? '').toLowerCase().replace(/[\s.,-]/g, '');
+
+/**
+ * Is the street address Google answered with the one that was asked for? Asked for a number or street
+ * it does not know, Google answers with the nearest one it does ("14 Henry St, Pakenham" → "214 Henry
+ * St"; "2/6E Main St, Officer" → "34 Station St, Officer"), and that pin is someone else's house. So
+ * the number (when one was given) and the street must be the same, and the suburb or the postcode.
+ * The unit is not compared: Google seldom returns one. Vacant land written "Lot 12 Smith Road" with no
+ * number matches Google's "Smith Road".
+ */
+export function sameAddress(asked: AddressParts, place: Pick<ResolvedPlace, 'streetNumber' | 'street' | 'suburb' | 'postcode'>): boolean {
+  let number = asked.streetNumber ?? '';
+  // "32/6E" in the number box with no unit is unit 32 of 6E, as addressKey reads it.
+  if (!asked.unit && number.includes('/')) number = number.slice(number.indexOf('/') + 1);
+  if (plain(number) && plain(number) !== plain(place.streetNumber)) return false;
+  const street = normaliseStreet(asked.street);
+  const found = normaliseStreet(place.street);
+  if (!found || (street !== found && !(!plain(number) && street.endsWith(` ${found}`)))) return false;
+  return plain(asked.suburb) === plain(place.suburb) || (!!asked.postcode?.trim() && asked.postcode.trim() === place.postcode?.trim());
+}
+
 /**
  * Coordinates for a property being saved.
  *
@@ -303,6 +325,11 @@ export async function geocodeAddress(
   /** The provider's own one-line address for the pin, stored beside it. */
   formatted: string;
   kind: PlaceKind;
+  /** What Google matched, to check against what was asked (`sameAddress`). */
+  streetNumber: string | null;
+  street: string | null;
+  suburb: string | null;
+  postcode: string | null;
 } | null> {
   const resolved = await resolvePlace(db, addressQuery(parts), opts);
   if (!resolved) return null;
@@ -312,5 +339,9 @@ export async function geocodeAddress(
     placeId: resolved.placeId,
     formatted: resolved.formatted,
     kind: resolved.kind,
+    streetNumber: resolved.streetNumber,
+    street: resolved.street,
+    suburb: resolved.suburb,
+    postcode: resolved.postcode,
   };
 }

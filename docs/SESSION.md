@@ -43,6 +43,17 @@ passes ~10 entries, move the older ones to a new archive file.
   first-visit compile cancelled downloads, so the run uses `next start`. 8/8 on the 15th run.
 - Failed runs left 21 export files in dev Storage (their agencies already gone); deleted, `exports/` now empty, no e2e files left.
 
+## 2026-11-26 — Claude Code (Mac) — import: an address must be the one asked for; dev test data cleared
+
+- The user: fix the address bug found in the ADR 0102 run on its own branch, and clear the test data from dev.
+- Branch `fix/import-exact-address` (from `485352f`), NOT merged: `sameAddress` in `geo/places.ts` (number, street, and suburb
+  or postcode must be the ones asked for); the dry run marks a row whose answer is another house ✗ "Google found “…”, not this
+  address"; `resolvePin` (listing save without coordinates) and the backfill leave it unpinned instead. ADR 0029 amendment,
+  TEST-PLAN Y26. Unit tests (the four answers from 2026-11-25), smoke check "an address Google answers with a nearby one",
+  the 7 listing-import smoke checks pass on dev; break-tests red (number check, suburb check, the import's check).
+- Dev cleared (guarded by `assertNotProduction`): 12 "(TEST) Folder import" listings, their 75 photo rows and 75 Storage files,
+  4 imports, 4 properties; no orphan files. Kept: the 3 TEST agencies and their accounts (re-seedable with `test-accounts.ts`).
+
 ## 2026-11-25 (evening) — Claude Code (Mac) — listing import: photos from a folder (ADR 0102, core)
 
 - The user: importing 1,000 listings by CSV left every photo to upload by hand. Researched how bulk tools do it (Shopify

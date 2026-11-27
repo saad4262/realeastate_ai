@@ -24,6 +24,10 @@ migration 0109, merge. Privacy policy must mention export.
 (`0109_workflow_run_task_idx`). Whoever merges second renames theirs to 0110 and its journal idx; its `when` (1795774981727) is
 later than this one's (1795603754789), so drizzle still applies it after this. ADR renumbered 0101 → **0104** (0101–0103 taken on main/branches).
 
+## Import: exact address (ADR 0029 amendment) — on `fix/import-exact-address`, NOT merged, 2026-11-26
+Google's nearest guess for an unknown address ("14 Henry St" → "214 Henry St") is no longer kept: the CSV dry run marks the row
+✗ with what Google found; the listing form's server geocode and the backfill leave it unpinned. Tests, smoke, break-tests done.
+
 ## Listing import: photos from a folder (ADR 0102) — LIVE: merge `8c8a17b` on `main`, all 4 Vercel builds Ready, 2026-11-25
 CSV + a dropped folder of photos, matched by the address in a folder name at any depth (or the listing id); the browser
 shrinks and uploads straight to Storage; every listing says what photos it got (links or folder). No migration.

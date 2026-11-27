@@ -11342,13 +11342,17 @@ async function main() {
       const v = cells[h] ?? '';
       return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
     }).join(',');
-  /** No network: a pin per address, "NOWHERE" not found; photo links fetched and attached in memory. */
+  /**
+   * No network: a pin per address, "NOWHERE" not found, and a "NEARBY" street answered as Google answers a
+   * number it does not know: the nearest one it does ("14" → "214"). Photo links fetched and attached in memory.
+   */
   function importDeps(attached: { listingId: string; key: string }[] = []): ImportDeps {
     return {
-      geocode: (async (_db: unknown, p: { street?: string | null; streetNumber?: string | null; suburb: string }) => {
+      geocode: (async (_db: unknown, p: { street?: string | null; streetNumber?: string | null; suburb: string; postcode: string }) => {
         if ((p.street ?? '').includes('NOWHERE')) return null;
         const h = [...`${p.streetNumber} ${p.street} ${p.suburb}`].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 100000, 7);
-        return { latitude: -38 + h / 1e6, longitude: 145 + h / 1e6, placeId: `fake-${h}`, formatted: `${p.streetNumber} ${p.street}, ${p.suburb}`, kind: 'address' };
+        const streetNumber = (p.street ?? '').includes('NEARBY') ? `2${p.streetNumber}` : (p.streetNumber ?? null);
+        return { latitude: -38 + h / 1e6, longitude: 145 + h / 1e6, placeId: `fake-${h}`, formatted: `${streetNumber} ${p.street}, ${p.suburb}`, kind: 'address', streetNumber, street: p.street ?? null, suburb: p.suburb, postcode: p.postcode };
       }) as never,
       photos: {
         fetchImage: async (url) => {
@@ -11406,6 +11410,20 @@ async function main() {
       assert(/active listings/.test(msg(9)) && /row 2/.test(msg(10)), `duplicates: ${msg(9)} / ${msg(10)}`);
       assert((await listingCount(t, x.f.agencyId)) === before, 'the dry run wrote listings');
       return '4 valid, 4 errors (price, headline, date, address), 2 duplicates (active listing, same as row 2); 0 listings written';
+    }),
+  );
+
+  await check('dry run: an address Google answers with a nearby one (another number) is an error, never that pin', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const text = [IMPORT_HEADER, csvRow({ street_number: '14', street: 'NEARBY Henry Street', suburb: 'Pakenham', state: 'VIC', postcode: '3810', channel: 'sale', status: 'live', headline: 'x', price_display: 'Contact agent' })].join('\n');
+      const { id } = await createImport(t, owner, { fileName: 'nearby.csv', text });
+      await startDryRun(t, owner, id);
+      await driveImport(t, owner, id, importDeps(), ['validated']);
+      const [row] = await importReport(t, owner, id);
+      assert(row?.status === 'error' && /Google found “214 NEARBY Henry Street, Pakenham”, not this address/.test(JSON.stringify(row.errors)), `nearby: ${JSON.stringify(row)}`);
+      return 'row is an error naming what Google found; no pin kept';
     }),
   );
 

@@ -3,7 +3,7 @@ import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { getDb, property } from '@repo/db';
-import { geocodeAddress } from './places';
+import { geocodeAddress, sameAddress } from './places';
 import { isGeoProviderConfigured } from './provider-google';
 
 config({ path: resolve(process.cwd(), '../../.env.local') });
@@ -117,6 +117,13 @@ async function main() {
       // relationship to and into radius searches it does not belong in —
       // which is how a Sahiwal address ended up in the middle of NSW.
       console.log(`  coarse ${label} → only matched a ${hit.kind}; left unpinned`);
+      missed += 1;
+      continue;
+    }
+
+    if (!sameAddress(row, hit)) {
+      // Google's nearest guess ("214 Henry St" for "14 Henry St") is another house's pin.
+      console.log(`  other  ${label} → Google found ${hit.formatted}; left unpinned`);
       missed += 1;
       continue;
     }
