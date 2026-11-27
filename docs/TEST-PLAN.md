@@ -2506,3 +2506,16 @@ Console Overview (`/overview` or the agent's `/assistant`), "Workflow emails" an
 | DB5 | Switch "Workflow texts" off for yourself, repeat DB1 | Refused: the skill is switched off; nothing proposed |
 | DB6 | "Email my buyers list now" | A button to the Email chat (a send now is still that chat's) |
 | DB7 | Email chat: ask for a workflow that also texts | Refused there, as before |
+
+## DC — Workflows of up to 12 steps, and Stop on a run in flight (ADR 0105)
+
+Console, as an agency owner, "Workflow emails" and "Workflow texts" on. The engine side is in smoke ("Workflows: stop a run, 12 steps").
+
+| # | Do | Expect |
+|---|---|---|
+| DC1 | AI Assistant: the 11-step new-lead prompt (assign to a named agent, message them, set Contacted, email, wait 2 h, text, wait 1 day, next action "Call", email, wait 3 days, remind me) | One card, Then 1 … Then 11; Approve saves it |
+| DC2 | Same with 13 steps | No card for 13: the assistant says the most is 12 and offers to shorten it |
+| DC3 | Record a lead by hand so DC1 runs; Skills → Automations → the workflow | The run in History has **Stop**; Stop → confirm → the run shows the rest skipped, "Stopped by hand…" |
+| DC4 | As an agent, open an owner's agency-wide workflow in the panel | No Stop on its runs |
+| DC5 | Two leads running DC1; in the AI Assistant: "stop the new-lead automation" | A "Stop the workflow" card: After: Paused; Runs going: 2 … each stops; Approve → both runs stopped, the workflow paused |
+| DC6 | "Pause the new-lead automation" while a run is going | The card says the runs going carry on to the end |

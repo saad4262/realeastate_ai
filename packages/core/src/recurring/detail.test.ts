@@ -65,6 +65,20 @@ describe('automationDetail', () => {
     expect(d.runs[0]).toMatchObject({ total: 3, sent: 1, failed: 1, remaining: 1 });
   });
 
+  it('a workflow run still going has Stop for who may manage it, a finished one none (ADR 0105)', async () => {
+    const runs = [
+      { id: 'going', at: new Date(), status: 'started', error: null, decision: null, steps: [{ status: 'done', error: null }, { status: 'scheduled', error: null }] },
+      { id: 'over', at: new Date(), status: 'started', error: null, decision: null, steps: [{ status: 'done', error: null }, { status: 'cancelled', error: null }] },
+    ];
+    workflowRuns.mockResolvedValue(runs);
+    listEveryAutomation.mockResolvedValue([row({ key: `workflow:${ID}`, source: 'workflow', canToggle: true })]);
+    const may = (await automationDetail({} as Db, agent, `workflow:${ID}`))!;
+    expect(may.runs.map((r) => r.canStop)).toEqual([true, false]);
+    listEveryAutomation.mockResolvedValue([row({ key: `workflow:${ID}`, source: 'workflow', canToggle: false })]);
+    const mayNot = (await automationDetail({} as Db, agent, `workflow:${ID}`))!;
+    expect(mayNot.runs.map((r) => r.canStop)).toEqual([false, false]);
+  });
+
   it('a run a reply stopped has nothing left: its cancelled steps are skipped, and it says why (ADR 0103)', async () => {
     listEveryAutomation.mockResolvedValue([row({ key: `workflow:${ID}`, source: 'workflow' })]);
     const why = 'Stopped: they emailed or texted back, so nothing more of this run was sent.';

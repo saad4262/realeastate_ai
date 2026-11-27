@@ -11,7 +11,8 @@ passes ~10 entries, move the older ones to a new archive file.
 - Branch `feat/workflow-stop-on-reply` (worktree `../realestate_ai-autom`, from `origin/main` 0449613). NOT merged, NOT on production.
 - Checks: `pnpm test` (core, AI 466, db 20), typecheck, lint; smoke group "Workflows: stop on reply (ADR 0103)" on dev; break-tests red (unit and smoke). NOT run: a live model on the new prompt, TEST-PLAN DA/DB in a browser.
 - Migration number: `feat/agency-data-export` also has a 0109 (and DEV already ran it). Whichever merges second renumbers.
-- Not built: stopping one run already part-way from the chat; pausing a workflow does not stop its runs in flight.
+- Then (the user, after a 12-step audit of what Overview can run): ADR 0105 — a workflow holds 12 steps (was 6), prompt `assistant@v32`; Stop on a run in flight: `stopWorkflowRun` (panel, per run) and `stopWorkflowRuns` (the chat's new `change_workflow: stop` = pause + end every run going), rule `workflow:manage`; steps cancelled before the task, the tick's lock order. `stopAssistantTask` still refuses a workflow's task. TEST-PLAN DC.
+- Still on hold (the user): tags, a Nurture stage, round-robin assignment. Also not built: a notification or task for the agent a run assigned, and `{{agent_name}}` as that agent (it is the workflow owner's name).
 
 ## 2026-11-25 (evening) — Claude Code (Mac) — listing import: photos from a folder (ADR 0102, core)
 

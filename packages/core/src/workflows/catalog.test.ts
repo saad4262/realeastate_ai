@@ -25,10 +25,11 @@ describe('workflowSpecSchema — only catalog parts, never code', () => {
     expect(parse({ trigger: { kind: 'lead.created' }, actions: [{ type: 'draft_email', instructions: 'x', to: 'a@b.co' }] }).success).toBe(false);
     expect(parse({ trigger: { kind: 'lead.created' }, actions: [], code: 'x' }).success).toBe(false);
   });
-  it('bounds: 1–6 actions, up to 5 conditions, a wait up to 30 days, no-reply 1–14 days', () => {
+  it('bounds: 1–12 actions (ADR 0105), up to 5 conditions, a wait up to 30 days, no-reply 1–14 days', () => {
     const a = { type: 'remind_owner', text: 'x' };
     expect(parse({ trigger: { kind: 'lead.created' }, actions: [] }).success).toBe(false);
-    expect(parse({ trigger: { kind: 'lead.created' }, actions: Array(7).fill(a) }).success).toBe(false);
+    expect(parse({ trigger: { kind: 'lead.created' }, actions: Array(12).fill(a) }).success).toBe(true);
+    expect(parse({ trigger: { kind: 'lead.created' }, actions: Array(13).fill(a) }).success).toBe(false);
     expect(parse({ trigger: { kind: 'lead.created' }, actions: [{ type: 'wait', hours: 721 }, a] }).success).toBe(false);
     expect(parse({ trigger: { kind: 'lead.no_reply', days: 15 }, actions: [a] }).success).toBe(false);
     expect(parse({ trigger: { kind: 'lead.no_reply', days: 3 }, actions: [a] }).success).toBe(true);

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { automationIcon, readableDuration, type AutomationDetail, type RunProgress } from '@repo/core/recurring/detail-types';
 import type { AutomationPaths } from '@repo/core/automation-status/links';
 import { useToast } from '@/components/toast';
-import { stopAutomationRunAction, stopTaskAction } from '@/lib/automation-actions';
+import { stopAutomationRunAction, stopTaskAction, stopWorkflowRunAction } from '@/lib/automation-actions';
 import { AutomationControls } from './automation-controls';
 import { Progress } from './progress';
 import styles from './automation-detail.module.css';
@@ -217,6 +217,15 @@ export function AutomationDetailPanel({ automationKey, paths, inChat = false }: 
                 </div>
                 {r.total ? <Numbers r={r} noun={noun} /> : null}
                 {r.detail ? <p className={styles.note}>{r.detail}</p> : null}
+                {r.canStop ? (
+                  <StopButton
+                    run={async () => {
+                      const out = await stopWorkflowRunAction(r.id);
+                      await load();
+                      return out;
+                    }}
+                  />
+                ) : null}
               </li>
             ))}
           </ul>

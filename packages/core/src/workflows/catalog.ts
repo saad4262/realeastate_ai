@@ -237,7 +237,8 @@ export const AGENCY_ONLY_ACTIONS: readonly ActionType[] = ['assign_lead', 'assig
 /** Actions that reach a contact. `send_template_email` sends by itself (an approved template, D1); `draft_email` never does. */
 export const REACHES_CONTACT: readonly ActionType[] = ['send_template_email', 'send_template_sms', 'draft_email'];
 
-export const WORKFLOW_LIMITS = { conditions: 5, actions: 6, perAgent: 10, perAgency: 50, runsPerDay: 200, draftDays: 7 } as const;
+// actions: 12 (ADR 0105), waits included; all waits together stay under 29 days (stepsProblem).
+export const WORKFLOW_LIMITS = { conditions: 5, actions: 12, perAgent: 10, perAgency: 50, runsPerDay: 200, draftDays: 7 } as const;
 
 // ── AI decides (ADR 0067, ROADMAP 4.2) ──────────────────────────────────────
 

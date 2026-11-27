@@ -9,7 +9,7 @@ import { QUERY_MAX_CHARS } from '../open-query/guard';
 import { AU_STATES, PROPERTY_TYPES } from '../listings/listing-schema';
 import { SKILL_KEYS } from '../skill-switches/catalog';
 import { DEAL_STAGES } from '../deals/stages';
-import { CALLER_KINDS, DEAL_SIDES, DEAL_TRIGGER_STAGES, TRIGGER_KINDS } from '../workflows/catalog';
+import { CALLER_KINDS, DEAL_SIDES, DEAL_TRIGGER_STAGES, TRIGGER_KINDS, WORKFLOW_LIMITS } from '../workflows/catalog';
 
 /**
  * The console assistant's contract (docs/adr/0025). Phase A: read tools only.
@@ -382,12 +382,12 @@ export const createWorkflowInput = z
     trigger: workflowTriggerInput,
     conditions: z.array(workflowConditionInput).max(5).default([]),
     /** The steps — or, with `decide`, the "Not sure" steps. */
-    actions: z.array(workflowActionInput).min(1).max(6),
+    actions: z.array(workflowActionInput).min(1).max(WORKFLOW_LIMITS.actions),
     /** ADR 0067: the AI reads the enquiry and picks one of these labels at the start; that label's steps run. */
     decide: z
       .object({
         question: z.string().trim().min(1).max(200),
-        choices: z.array(z.object({ label: z.string().trim().min(1).max(40), actions: z.array(workflowActionInput).min(1).max(6) }).strict()).min(2).max(4),
+        choices: z.array(z.object({ label: z.string().trim().min(1).max(40), actions: z.array(workflowActionInput).min(1).max(WORKFLOW_LIMITS.actions) }).strict()).min(2).max(4),
       })
       .strict()
       .optional(),
@@ -409,7 +409,8 @@ export const createTemplateInput = z
     body: z.string().trim().min(1).max(8000),
   })
   .strict();
-export const changeWorkflowInput = z.object({ workflow: workflowHandleSchema, change: z.enum(['pause', 'resume', 'archive']) }).strict();
+/** ADR 0105: `stop` pauses it AND stops every run in flight; `pause` only stops new runs. */
+export const changeWorkflowInput = z.object({ workflow: workflowHandleSchema, change: z.enum(['pause', 'stop', 'resume', 'archive']) }).strict();
 export const setUpSkillInput = z.object({ skill: skillHandleSchema, schedule: skillScheduleInput.optional(), mail_me: z.boolean().optional() }).strict();
 /** One of the person's own skills: only what is named changes. `instructions` is the whole new text under the front-matter. */
 export const changeSkillInput = z

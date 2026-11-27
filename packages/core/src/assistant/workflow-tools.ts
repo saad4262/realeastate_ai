@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import type { z } from 'zod';
 import { workflow as workflowTable, type Db, type DbOrTx } from '@repo/db';
 import type { Actor } from '../permissions';
-import { checkWorkflow, listWorkflows, namesFor, saveWorkflow, setWorkflowStatus, WorkflowError } from '../workflows/manage';
+import { checkWorkflow, countRunsInFlight, listWorkflows, namesFor, saveWorkflow, setWorkflowStatus, stopWorkflowRuns, WorkflowError } from '../workflows/manage';
 import { allActions, NO_REPLY_HOURS, NOT_SURE, REACHES_CONTACT, specInWords, type Condition, type WorkflowAction, type WorkflowSpec } from '../workflows/catalog';
 import { resolvePlace } from '../geo/places';
 import { agencyTimeZone } from '../widgets/registry';
@@ -286,19 +286,34 @@ export async function proposeChangeWorkflow(ctx: ToolContext, input: z.infer<typ
   if (!w.mayManage) return refused('Only its owner or an owner/admin can change this workflow. Nothing was proposed.', label);
   if (!workflowFitsChat(ctx.chatScope ?? null, w.stepTypes)) return refused(OTHER_CHANNEL, label);
   const now = w.status === 'paused' ? 'Paused' : 'On';
-  if ((input.change === 'pause' && w.status === 'paused') || (input.change === 'resume' && w.status === 'active')) {
-    return { label, result: { proposed: false, tell_the_user: `“${w.name}” is already ${w.status === 'paused' ? 'paused' : 'on'}.` } };
+  // ADR 0105: "stop" also ends the runs already going, so it is never "already done" while one is.
+  const going = input.change === 'stop' || input.change === 'pause' ? await countRunsInFlight(ctx.db, id) : 0;
+  if ((input.change === 'pause' && w.status === 'paused') || (input.change === 'resume' && w.status === 'active') || (input.change === 'stop' && w.status === 'paused' && !going)) {
+    return { label, result: { proposed: false, tell_the_user: `“${w.name}” is already ${w.status === 'paused' ? 'paused' : 'on'}${input.change === 'stop' ? ', and nothing of it is running' : ''}.` } };
   }
-  const after = input.change === 'pause' ? 'Paused — nothing new runs' : input.change === 'resume' ? 'On' : 'Archived — off for good, kept in the record';
+  const after =
+    input.change === 'pause' ? 'Paused — nothing new runs' : input.change === 'stop' ? 'Paused — nothing new runs' : input.change === 'resume' ? 'On' : 'Archived — off for good, kept in the record';
+  const runsLine = going === 1 ? '1 run is going now' : `${going} runs are going now`;
   const card: ProposalCard = {
-    title: `${input.change === 'pause' ? 'Pause' : input.change === 'resume' ? 'Turn on' : 'Archive'} the workflow “${w.name}”`,
+    title: `${{ pause: 'Pause', stop: 'Stop', resume: 'Turn on', archive: 'Archive' }[input.change]} the workflow “${w.name}”`,
     contact: { id: '', name: '' },
     lines: [
       { label: 'Workflow', value: `${w.name} — ${w.words.when}` },
       { label: 'Now', value: now },
       { label: 'After', value: after },
+      ...(input.change === 'stop' ? [{ label: 'Runs going', value: going ? `${runsLine}: each stops, nothing more of it is sent` : 'None' }] : []),
+      ...(input.change === 'pause' && going ? [{ label: 'Runs going', value: `${runsLine}: they carry on to the end` }] : []),
     ],
-    notes: [NOTHING_YET, ...(input.change === 'resume' ? ['It is checked again before it turns on.'] : ['Runs already started finish their steps; ask me to stop a task if one should not.'])],
+    notes: [
+      NOTHING_YET,
+      ...(input.change === 'resume'
+        ? ['It is checked again before it turns on.']
+        : input.change === 'stop'
+          ? ['What has already been sent stays sent. A step going out at this very moment finishes; nothing after it runs.']
+          : input.change === 'pause'
+            ? ['Runs already started finish their steps. To end those too, ask me to stop it.']
+            : ['Runs already started finish their steps.']),
+    ],
   };
   const args: FrozenArgs = { tool: 'change_workflow', workflowId: id, change: input.change };
   return propose(ctx, label, { tool: 'change_workflow', args, card, contactId: null });
@@ -317,7 +332,9 @@ export async function runWorkflowAction(
       const { id } = await saveWorkflow(tx, actor, { name: args.name, scope: args.scope, spec: args.spec, replaces: args.replaces });
       return { result: { workflowId: id } };
     }
-    await setWorkflowStatus(tx, actor, args.workflowId, args.change === 'pause' ? 'paused' : args.change === 'resume' ? 'active' : 'archived');
+    await setWorkflowStatus(tx, actor, args.workflowId, args.change === 'pause' || args.change === 'stop' ? 'paused' : args.change === 'resume' ? 'active' : 'archived');
+    // ADR 0105: and every run still going ends, in this same transaction.
+    if (args.change === 'stop') return { result: { workflowId: args.workflowId, ...(await stopWorkflowRuns(tx, actor, args.workflowId)) } };
     return { result: { workflowId: args.workflowId } };
   } catch (err) {
     if (err instanceof WorkflowError) throw new AssistantError(err.code === 'not_found' ? 'not_found' : 'conflict', err.message);
@@ -329,5 +346,5 @@ export async function verifyWorkflowAction(tx: DbOrTx, args: { tool: string } & 
   const [w] = await tx.select({ status: workflowTable.status }).from(workflowTable).where(and(eq(workflowTable.id, String(result.workflowId ?? '')))).limit(1);
   if (!w) return false;
   if (args.tool === 'create_workflow') return w.status === 'active';
-  return w.status === ({ pause: 'paused', resume: 'active', archive: 'archived' } as Record<string, string>)[String(args.change)];
+  return w.status === ({ pause: 'paused', stop: 'paused', resume: 'active', archive: 'archived' } as Record<string, string>)[String(args.change)];
 }

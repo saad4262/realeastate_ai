@@ -271,7 +271,7 @@ import {
 } from '@repo/core/assistant';
 import { assistantDeps, runAssistantTurn, type AssistantEvent } from '@repo/ai/assistant';
 import { DASHBOARD_EVALS } from '@repo/ai/evals/dashboard-phrases';
-import { listWaitingDrafts, listWorkflows, runWorkflowTick, saveWorkflow, setWorkflowStatus, STOPPED_BY_REPLY } from '@repo/core/workflows';
+import { listWaitingDrafts, listWorkflows, runWorkflowTick, saveWorkflow, setWorkflowStatus, STOPPED_BY_HAND, STOPPED_BY_REPLY, stopWorkflowRun, stopWorkflowRuns } from '@repo/core/workflows';
 import { runDealSync } from '@repo/core/deals';
 import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-switches';
 import { consumerSkillBlocks, listConsumerSkills, setConsumerSkill, usersWithConsumerSkillOff } from '@repo/core/consumer-skills';
@@ -7646,6 +7646,65 @@ async function main() {
       const listed = (await listWorkflows(t, w.actor)).find((wf) => wf.id === id);
       assert(listed?.stepTypes.join() === 'send_template_email,wait,send_template_sms' && listed.lastRun === null, `listed: ${JSON.stringify(listed)}`);
       return 'email → wait 2 h → text saved as one workflow; listed with both steps; last run: never';
+    }),
+  );
+
+  // ── ADR 0105: stopping a run in flight, and workflows of up to 12 steps ───────────────────────
+  group('Workflows: stop a run, 12 steps (ADR 0105)');
+
+  /** A1's workflow — a reminder, an hour's wait, a reminder — started for `leads` new leads, first steps run. */
+  async function runningFixture(t: Db, leads: number) {
+    const w = await workflowFixture(t, { trigger: { kind: 'lead.created', source: 'manual' }, conditions: [], actions: [{ type: 'remind_owner', text: 'Stop first', mail_me: false }, { type: 'wait', hours: 1 }, { type: 'remind_owner', text: 'Stop second', mail_me: false }] });
+    const contacts = [w.f.contacts.p2, w.f.contacts.p3, w.f.contacts.p4].slice(0, leads);
+    for (const c of contacts) await createManualLead(t, w.actor, { contactId: c, listingId: w.listingId, kind: 'enquiry', message: null });
+    const tick = await runWorkflowTick(t, new Date());
+    await runScheduledActions(t, {}, new Date());
+    assert(tick.runs === leads, `runs: ${JSON.stringify(tick)}`);
+    const second = () => count(t, sql`select count(*)::int as n from notification where user_id = ${w.f.people.a1} and title = 'Stop second'`);
+    const later = () => runScheduledActions(t, {}, new Date(Date.now() + 2 * 3_600_000));
+    return { w, second, later };
+  }
+
+  await check('the panel’s Stop: a colleague may not; the owner of the agency may; nothing more of the run is sent, and it says why', async () =>
+    inRollback(async (t) => {
+      const x = await runningFixture(t, 1);
+      const [run] = await runsOf(t, x.w.workflowId);
+      const [r] = await t.execute<{ id: string }>(sql`select id from workflow_run where workflow_id = ${x.w.workflowId}`);
+      const colleague = await t.transaction((sp) => stopWorkflowRun(sp as unknown as Db, x.w.f.actor('a2'), r!.id)).then(() => 'stopped', (e: unknown) => (e as { code?: string }).code);
+      assert(colleague === 'forbidden' || colleague === 'not_found', `a colleague: ${colleague}`);
+      assert((await stopWorkflowRun(t, x.w.f.actor('owner'), r!.id)).stopped === 1, 'the owner could not stop it');
+      await x.later();
+      assert((await x.second()) === 0, 'the second step ran after Stop');
+      const [task] = await t.execute<{ status: string; error: string | null }>(sql`select status, error from assistant_task where id = ${run!.task_id}`);
+      const steps = await t.execute<{ status: string }>(sql`select status from proposed_action where task_id = ${run!.task_id} order by task_seq`);
+      assert(task!.status === 'cancelled' && task!.error === STOPPED_BY_HAND && steps.map((s) => s.status).join() === 'done,cancelled', `task ${JSON.stringify(task)} steps ${JSON.stringify(steps)}`);
+      const again = await t.transaction((sp) => stopWorkflowRun(sp as unknown as Db, x.w.f.actor('owner'), r!.id)).then(() => 'stopped', (e: unknown) => (e as Error).message);
+      assert(again === 'This run has already finished', `again: ${again}`);
+      return 'A2 refused; owner stopped it; "Stop second" never rang; task cancelled "Stopped by hand…", steps done,cancelled; a second Stop says it already finished';
+    }),
+  );
+
+  await check('the chat’s "stop": the workflow is paused and every run in flight ends, in one transaction', async () =>
+    inRollback(async (t) => {
+      const x = await runningFixture(t, 3);
+      await setWorkflowStatus(t, x.w.actor, x.w.workflowId, 'paused');
+      const { stopped } = await stopWorkflowRuns(t, x.w.actor, x.w.workflowId);
+      await x.later();
+      const [wf] = await t.execute<{ status: string }>(sql`select status from workflow where id = ${x.w.workflowId}`);
+      assert(stopped === 3 && wf!.status === 'paused' && (await x.second()) === 0, `stopped ${stopped}, ${wf!.status}, second rang ${await x.second()}`);
+      return '3 runs in flight → 3 stopped, none rang its second step; the workflow paused';
+    }),
+  );
+
+  await check('a 12-step workflow saves; 13 steps are refused', async () =>
+    inRollback(async (t) => {
+      const w = await workflowFixture(t, { trigger: { kind: 'lead.created', source: 'manual' }, conditions: [], actions: [{ type: 'remind_owner', text: 'x', mail_me: false }] });
+      const step = { type: 'remind_owner', text: 'Step', mail_me: false };
+      const spec = (n: number) => ({ trigger: { kind: 'lead.created', source: 'manual' }, conditions: [], actions: Array(n).fill(step) });
+      await saveWorkflow(t, w.actor, { name: `Smoke twelve ${w.f.tag}`, scope: 'mine', spec: spec(12) });
+      const thirteen = await t.transaction((sp) => saveWorkflow(sp as unknown as Db, w.actor, { name: `Smoke thirteen ${w.f.tag}`, scope: 'mine', spec: spec(13) })).then(() => 'saved', () => 'refused');
+      assert(thirteen === 'refused', 'a 13-step workflow was saved');
+      return '12 steps saved; 13 refused';
     }),
   );
 

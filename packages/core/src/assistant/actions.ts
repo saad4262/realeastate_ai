@@ -192,7 +192,7 @@ export type FrozenArgs =
   /** ADR 0041 Part C: a workflow as checked on its card (ids resolved); saved active on Approve, or replacing `replaces`. */
   | { tool: 'create_workflow'; automation: AutomationDraft }
   | { tool: 'create_workflow'; name: string; scope: 'mine' | 'agency'; spec: WorkflowSpec; replaces: string | null }
-  | { tool: 'change_workflow'; workflowId: string; change: 'pause' | 'resume' | 'archive' }
+  | { tool: 'change_workflow'; workflowId: string; change: 'pause' | 'stop' | 'resume' | 'archive' }
   /** ADR 0048: the exact words the card showed — saved as a template on Approve. */
   | { tool: 'create_template'; name: string; subject: string; body: string }
   /** ADR 0041 Part A: a library skill added to the person's own, scheduled, and switched on. */

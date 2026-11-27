@@ -9,7 +9,7 @@ import { OPEN_FORMATS, OPEN_VIZ, QUERY_MAX_CHARS } from '@repo/core/open-query';
 import { CONTACT_ROLES } from '@repo/core/contacts/schema';
 import { INTEGRATION_PROVIDERS } from '@repo/core/integrations/providers';
 import { SKILL_KEYS } from '@repo/core/skill-switches/catalog';
-import { CALLER_KINDS, DEAL_SIDES, DEAL_TRIGGER_STAGES, TRIGGER_KINDS } from '@repo/core/workflows/catalog';
+import { CALLER_KINDS, DEAL_SIDES, DEAL_TRIGGER_STAGES, TRIGGER_KINDS, WORKFLOW_LIMITS } from '@repo/core/workflows/catalog';
 import { DEAL_STAGES } from '@repo/core/deals/stages';
 
 /**
@@ -258,7 +258,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
         },
         actions: {
           type: 'array',
-          description: 'THEN — 1 to 6 steps in order; each a type and only its own fields.',
+          description: `THEN — 1 to ${WORKFLOW_LIMITS.actions} steps in order, waits included; each a type and only its own fields. All the waits together under 29 days.`,
           items: WORKFLOW_ACTION_ITEM,
         },
         decide: {
@@ -269,7 +269,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
             question: { type: 'string', description: 'What the AI decides, in the person’s words, e.g. "Do they want to sell, buy or rent?"' },
             choices: {
               type: 'array',
-              description: '2 to 4 choices, each a short label (never "Not sure") and its 1 to 6 steps.',
+              description: `2 to 4 choices, each a short label (never "Not sure") and its 1 to ${WORKFLOW_LIMITS.actions} steps.`,
               items: {
                 type: 'object',
                 additionalProperties: false,
@@ -302,11 +302,11 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   },
   {
     name: 'change_workflow',
-    description: `Propose pausing, turning back on, or archiving (what "delete" means) one workflow — a W reference from find_workflows. Its owner or an owner/admin only. ${PROPOSES}`,
+    description: `Propose pausing, stopping, turning back on, or archiving (what "delete" means) one workflow — a W reference from find_workflows. pause: nothing new runs, runs already going carry on. stop: paused AND every run already going stops now (use it when the person says stop it, cancel it, or it must not send anything more). Its owner or an owner/admin only. ${PROPOSES}`,
     input_schema: {
       type: 'object',
       additionalProperties: false,
-      properties: { workflow: { type: 'string', description: 'A W reference.' }, change: { type: 'string', enum: ['pause', 'resume', 'archive'] } },
+      properties: { workflow: { type: 'string', description: 'A W reference.' }, change: { type: 'string', enum: ['pause', 'stop', 'resume', 'archive'] } },
       required: ['workflow', 'change'],
     },
   },

@@ -1,5 +1,5 @@
 import { and, count, desc, eq, gt, inArray, isNull, ne, sql } from 'drizzle-orm';
-import { emailTemplate, listing, property, proposedAction, user, workflow, workflowRun, type Db, type DbOrTx } from '@repo/db';
+import { assistantTask, emailTemplate, listing, property, proposedAction, user, workflow, workflowRun, type Db, type DbOrTx } from '@repo/db';
 import { activeMemberActor } from '../team/member-actor';
 import type { RunDecision } from './decide';
 import { usableTemplateSql } from '../template-email/templates';
@@ -161,6 +161,65 @@ export async function setWorkflowStatus(db: DbOrTx, actor: Actor, id: string, st
     if ('problem' in checked) throw new WorkflowError('invalid', `It cannot run as it stands: ${checked.problem}`);
   }
   await db.update(workflow).set({ status, pausedReason: null, updatedAt: sql`now()` }).where(eq(workflow.id, w.id));
+}
+
+/** What a run stopped from the chat or the Automations panel says (ADR 0105). */
+export const STOPPED_BY_HAND = 'Stopped by hand, so nothing more of this run was sent.';
+
+/** The tasks of this workflow's runs that are still going. A subquery: no ids pass through the app. */
+const tasksInFlight = (db: DbOrTx, workflowId: string) =>
+  db
+    .select({ id: workflowRun.taskId })
+    .from(workflowRun)
+    .innerJoin(assistantTask, eq(assistantTask.id, workflowRun.taskId))
+    .where(and(eq(workflowRun.workflowId, workflowId), inArray(assistantTask.status, ['proposed', 'active'])));
+
+/**
+ * Every step still to come of these tasks cancelled, then the tasks ended, saying why. Two statements; the caller's
+ * transaction. Steps first, then the task — the order the minute tick locks them in — so a step running at that moment
+ * is waited for, never deadlocked with; it finishes, and the step it would release is cancelled.
+ */
+async function stopTasks(db: DbOrTx, taskIds: string[], now: Date): Promise<number> {
+  if (!taskIds.length) return 0;
+  await db
+    .update(proposedAction)
+    .set({ status: 'cancelled', error: STOPPED_BY_HAND, updatedAt: sql`now()` })
+    .where(and(inArray(proposedAction.taskId, taskIds), inArray(proposedAction.status, ['blocked', 'scheduled'])));
+  const ended = await db
+    .update(assistantTask)
+    .set({ status: 'cancelled', error: STOPPED_BY_HAND, finishedAt: now, updatedAt: sql`now()` })
+    .where(and(inArray(assistantTask.id, taskIds), inArray(assistantTask.status, ['proposed', 'active'])))
+    .returning({ id: assistantTask.id });
+  return ended.length;
+}
+
+/** How many of this workflow's runs are still going, for the card that would stop them. */
+export async function countRunsInFlight(db: DbOrTx, workflowId: string): Promise<number> {
+  return (await tasksInFlight(db, workflowId)).length;
+}
+
+/**
+ * ADR 0105: every run of this workflow still going is stopped — what has gone stays gone, nothing more is
+ * sent. Its owner or an owner/admin (`workflow:manage`, the rule for pausing it). Takes the caller's
+ * transaction; the workflow itself is not paused here (the chat's "stop" pauses it as well).
+ */
+export async function stopWorkflowRuns(db: DbOrTx, actor: Actor, workflowId: string, now = new Date()): Promise<{ stopped: number }> {
+  const w = await loadWorkflow(db, actor, workflowId);
+  if (!can(actor, 'workflow:manage', resource(w))) throw new WorkflowError('forbidden', 'Only its owner or an admin can stop this workflow’s runs');
+  const ids = (await tasksInFlight(db, w.id)).map((r) => r.id).filter((id): id is string => Boolean(id));
+  return { stopped: await stopTasks(db, ids, now) };
+}
+
+/** ADR 0105: one run still going, stopped — the Automations panel's Stop. Same rule as stopping them all. */
+export async function stopWorkflowRun(db: Db, actor: Actor, runId: string, now = new Date()): Promise<{ stopped: number }> {
+  if (!actor.agencyId || !UUID.test(runId)) throw NOT_FOUND();
+  const [run] = await db.select({ workflowId: workflowRun.workflowId, taskId: workflowRun.taskId }).from(workflowRun).where(and(eq(workflowRun.id, runId), eq(workflowRun.agencyId, actor.agencyId))).limit(1);
+  if (!run) throw NOT_FOUND();
+  const w = await loadWorkflow(db, actor, run.workflowId);
+  if (!can(actor, 'workflow:manage', resource(w))) throw new WorkflowError('forbidden', 'Only its owner or an admin can stop this workflow’s runs');
+  const stopped = await db.transaction((tx) => stopTasks(tx, run.taskId ? [run.taskId] : [], now));
+  if (!stopped) throw new WorkflowError('invalid', 'This run has already finished');
+  return { stopped };
 }
 
 /** The admin's stop button: every active workflow of the agency paused at once. */
