@@ -3,6 +3,20 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-28 (later) — Claude Code (Mac) — ADR 0107 round-robin, tags, Nurture, booking link
+
+- The user: "start all the remaining work, tell me at 100%" (the 12-step audit's last 20%). Branch `feat/workflow-round-robin-tags`
+  in worktree `../realestate_ai-autom` (the user's dev server on :3011 runs from it; break-tests in a separate worktree).
+- ADR 0107. Migration **0111** (applied on DEV only): `lead_status` + `nurture`; `contact.tags text[]`; `user.booking_url`;
+  `workflow.turn`; `proposed_action_tool_check` + `tag_contact` (the tool-check test caught it).
+- Workflow steps `assign_in_turn` (lead AND contact, turn taken with one `update … returning` in the run's transaction),
+  `message_assigned_agent`, `tag_contact`; `set_lead_status nurture`. Tags: by hand on the contact, filter (any case) on the
+  directory / saved lists / `find_contacts`, export column. `{{booking_link}}` in email and SMS templates: the contact's agent's
+  link, else the sender's, else skipped `no_booking_link`; each person sets theirs on Connectors (`integration:manage`, own).
+- Prompt `assistant@v33`. LEAD_STATUSES written once (catalog) with a test against the enum. A planned GIN index on tags was
+  dropped: the filter is case-insensitive, so it would never be used.
+- Checks: typecheck, lint, `pnpm test` (core 2657, AI 466), smoke "Workflows: in turn, tags, Nurture, booking link" 3/3 on dev.
+
 ## 2026-11-28 — Claude Code (Mac) — workflows (ADR 0103, 0105, 0106) LIVE
 
 - The user's go: production backup, migration 0110, merge `feat/workflow-stop-on-reply`, deploy.

@@ -13,9 +13,9 @@ import {
 import { checkEmailLimits, devAllowlist, emailLimitsFromEnv, type TemplateLimits } from '../email/limits';
 import { contactUnsubscribeUrl } from '../email/unsubscribe';
 import { deliverOutbound, mailDepsFromEnv, recordOutbound, type MailDeps } from '../mail/send';
-import { mergeValuesFor, classify, type TemplateSnapshot } from './batches';
+import { bookingLinkSql, mergeValuesFor, classify, type TemplateSnapshot } from './batches';
 import { hasMarketingConsentSql } from './consent';
-import { renderMerge, type SkipReason } from './schema';
+import { renderMerge, usesBookingLink, type SkipReason } from './schema';
 
 /**
  * Sending a claimed batch (docs/adr/0022). Called right after Approve, and by
@@ -87,6 +87,7 @@ export async function sendBatch(db: Db, deps: TemplateSendDeps, batchId: string)
   if (!batch || batch.channel !== 'email' || batch.status !== 'approved_sending') return report;
   const tpl = batch.templateSnapshot as TemplateSnapshot;
   const values = await mergeValuesFor(db, batch);
+  const needsBooking = usesBookingLink(tpl.subject, tpl.body);
   const allowed = devAllowlist(deps.env ?? process.env);
   const sleep = deps.sleep ?? defaultSleep;
   let first = true;
@@ -104,6 +105,7 @@ export async function sendBatch(db: Db, deps: TemplateSendDeps, batchId: string)
         optOutAt: contact.emailOptOutAt,
         // The same definition as at Prepare (ADR 0043): recorded, or inferred — and the opt-out tested first.
         consent: hasMarketingConsentSql(),
+        bookingUrl: needsBooking ? bookingLinkSql(batch.userId) : sql<string | null>`null`,
       })
       .from(contact)
       .where(eq(contact.id, r.contact_id))
@@ -118,6 +120,8 @@ export async function sendBatch(db: Db, deps: TemplateSendDeps, batchId: string)
         });
     if (!reason && (now?.email ?? '').toLowerCase() !== (r.email ?? '').toLowerCase()) reason = 'email_changed';
     if (!reason && allowed && !allowed(r.email ?? '')) reason = 'dev_allowlist';
+    // ADR 0107: their agent took the link off since Prepare.
+    if (!reason && needsBooking && !now?.bookingUrl) reason = 'no_booking_link';
     if (!reason) {
       const limit = await checkEmailLimits(db, { agencyId: batch.agencyId, userId: batch.userId }, deps.limits, r.mail_message_id ? 0 : 1);
       if (!limit.ok) reason = 'daily_limit';
@@ -139,7 +143,7 @@ export async function sendBatch(db: Db, deps: TemplateSendDeps, batchId: string)
         await db.update(mailMessage).set({ status: 'queued', error: null, updatedAt: sql`now()` })
           .where(and(eq(mailMessage.id, messageId), eq(mailMessage.status, 'failed')));
       } else {
-        const v = values(r.name);
+        const v = values(r.name, now?.bookingUrl);
         const subject = renderMerge(tpl.subject, v);
         const body = renderMerge(tpl.body, v);
         const created = await db.transaction(async (tx) => {

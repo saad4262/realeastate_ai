@@ -160,6 +160,8 @@ import {
   listContactAssignees,
   recordMarketingConsent,
   withdrawMarketingConsent,
+  tagContact,
+  untagContact,
   editContactDetails,
   updateNote,
   visibleContactIdsSql,
@@ -380,7 +382,7 @@ import { exportJobHandler, expireExports, listMyExports, requestFullExport, sign
 import type { JobRow } from '@repo/core/jobs';
 import { strToU8, strFromU8, unzipSync } from 'fflate';
 import { parseCsv as parseExportCsv } from '@repo/core/imports';
-import { activeMemberActor, assignNeedsOwner, claimAgentInvite, listNeedsOwner, offboardingPreview, removedFromAgency, removeMember, restoreMember } from '@repo/core/team';
+import { activeMemberActor, assignNeedsOwner, claimAgentInvite, listNeedsOwner, offboardingPreview, removedFromAgency, removeMember, restoreMember, setBookingLink } from '@repo/core/team';
 import { runEmbeddingTick, type Embedder } from '@repo/core/assistant-search';
 import type { ToolContext } from '@repo/core/assistant';
 import { assert, check, group, note, report, skip } from './runner';
@@ -7725,6 +7727,97 @@ async function main() {
       const thirteen = await t.transaction((sp) => saveWorkflow(sp as unknown as Db, w.actor, { name: `Smoke thirteen ${w.f.tag}`, scope: 'mine', spec: spec(13) })).then(() => 'saved', () => 'refused');
       assert(thirteen === 'refused', 'a 13-step workflow was saved');
       return '12 steps saved; 13 refused';
+    }),
+  );
+
+  // ── ADR 0107: round-robin, tags, Nurture, each agent's booking link (migration 0111) ─────────────
+  group('Workflows: in turn, tags, Nurture, booking link (ADR 0107)');
+
+  await check('three new leads go to the agents in turn — lead and contact together, the agent told is the one given it, tagged Cold, moved to Nurture', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const { id: workflowId } = await saveWorkflow(t, owner, {
+        name: `Smoke in turn ${f.tag}`,
+        scope: 'agency',
+        spec: {
+          trigger: { kind: 'lead.created', source: 'manual' },
+          conditions: [],
+          actions: [
+            { type: 'assign_in_turn', among: [f.people.a1, f.people.a2] },
+            { type: 'message_assigned_agent', subject: 'A new lead is yours', body: 'Call them today' },
+            { type: 'tag_contact', tag: 'Cold' },
+            { type: 'set_lead_status', to: 'nurture' },
+          ],
+        },
+      });
+      const [lst] = await t.execute<{ id: string }>(sql`select listing_id as id from listing_agent where user_id = ${f.people.a1} limit 1`);
+      const people = [f.contacts.p5, f.contacts.p6, f.contacts.p1];
+      for (const c of people) await createManualLead(t, owner, { contactId: c, listingId: lst!.id, kind: 'enquiry', message: null });
+      const tick = await runWorkflowTick(t, new Date());
+      for (let i = 0; i < 6; i++) await runScheduledActions(t, {}, new Date());
+      assert(tick.runs === 3, `runs: ${JSON.stringify(tick)}`);
+      const rows = await t.execute<{ lead_to: string | null; contact_to: string | null; status: string; tags: string[]; told: string | null; steps: string }>(sql`
+        select l.assigned_to as lead_to, c.assigned_to as contact_to, l.status::text as status, c.tags,
+          (select p.args->'to'->>0 from proposed_action p where p.task_id = r.task_id and p.tool = 'message_colleagues') as told,
+          (select string_agg(p.status, ',' order by p.task_seq) from proposed_action p where p.task_id = r.task_id) as steps
+        from workflow_run r join lead l on l.id = r.lead_id join contact c on c.id = r.contact_id
+        where r.workflow_id = ${workflowId}`);
+      assert(rows.length === 3 && rows.every((r) => r.steps === 'done,done,done,done,done'), `steps: ${JSON.stringify(rows.map((r) => r.steps))}`);
+      for (const r of rows) {
+        assert(r.lead_to && r.lead_to === r.contact_to && r.told === r.lead_to, `lead ${r.lead_to}, contact ${r.contact_to}, told ${r.told}`);
+        assert(r.status === 'nurture' && JSON.stringify(r.tags) === '["Cold"]', `status ${r.status}, tags ${JSON.stringify(r.tags)}`);
+      }
+      const a1 = rows.filter((r) => r.lead_to === f.people.a1).length;
+      const a2 = rows.filter((r) => r.lead_to === f.people.a2).length;
+      const [wf] = await t.execute<{ turn: number }>(sql`select turn from workflow where id = ${workflowId}`);
+      assert(a1 === 2 && a2 === 1 && wf!.turn === 3, `a1 ${a1}, a2 ${a2}, turn ${wf!.turn}`);
+      const tagged = await count(t, sql`select count(*)::int as n from activity where agency_id = ${f.agencyId} and kind = 'tag_added'`);
+      assert(tagged === 3, `tag_added entries: ${tagged}`);
+      return '3 runs: A1, A2, A1 (turn 3); each lead and its contact to the same agent, who got the message; Cold once each; Nurture';
+    }),
+  );
+
+  await check('a tag by hand: once whatever its case, found in any case, taken off; a read-only member may not', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const c = f.contacts.p6;
+      assert((await tagContact(t, owner, c, 'VIP')) === 'added', 'not added');
+      assert((await tagContact(t, owner, c, '  vip ')) === 'already', 'added twice in another case');
+      const found = (await listContacts(t, owner, { tag: 'vip' })).rows.map((r) => r.id);
+      assert(found.length === 1 && found[0] === c, `filter found ${found.length}`);
+      const refused = await t.transaction((sp) => tagContact(sp as unknown as Db, f.actor('viewer'), f.contacts.p4, 'Hot')).then(() => 'tagged', (e: unknown) => (e as { code?: string }).code);
+      assert(refused === 'forbidden', `read-only: ${refused}`);
+      assert((await untagContact(t, owner, c, 'Vip')) === 'removed', 'not removed');
+      const [row] = await t.execute<{ tags: string[] }>(sql`select tags from contact where id = ${c}`);
+      assert(row!.tags.length === 0, `left: ${JSON.stringify(row!.tags)}`);
+      return 'VIP added once (vip again = already); found by "vip"; read-only refused; Vip removed';
+    }),
+  );
+
+  await check('{{booking_link}}: each person gets their own agent’s link; someone whose agent has none (nor the sender) is skipped, never sent the braces', async () =>
+    inRollback(async (t) => {
+      const x = await templateFixture(t);
+      const owner = x.f.actor('owner');
+      await setBookingLink(t, x.f.actor('a1'), 'https://cal.example.com/a1');
+      const refused = await t.transaction((sp) => setBookingLink(sp as unknown as Db, x.f.actor('viewer'), 'https://cal.example.com/v')).then(() => 'set', (e: unknown) => (e as { code?: string }).code);
+      assert(refused === 'forbidden', `read-only: ${refused}`);
+      const [a2c] = await t.execute<{ id: string }>(sql`
+        insert into contact (agency_id, name, email, assigned_to, marketing_consent_at, marketing_consent_by)
+        values (${x.f.agencyId}, 'Zara', ${`zara.${x.f.tag}@smoke.test`}, ${x.f.people.a2}, now(), ${x.f.people.a2}) returning id`);
+      const tpl = await createEmailTemplate(t, owner, { name: 'Book', subject: 'Book a time, {{first_name}}', body: 'Pick a time: {{booking_link}}' });
+      const cara = x.extra[0]!;
+      const { id } = await prepareEmailBatch(t, owner, { templateId: tpl.id, contactIds: [cara, a2c!.id] }, LIMITS);
+      const b = await getEmailBatch(t, owner, id);
+      const why = (cid: string) => b.recipients.find((r) => r.contactId === cid)?.skipReason ?? 'send';
+      assert(why(cara) === 'send' && why(a2c!.id) === 'no_booking_link', `at Prepare: cara ${why(cara)}, zara ${why(a2c!.id)}`);
+      const before = x.transport.sent.length;
+      await approveEmailBatch(t, owner, id, LIMITS);
+      await sendEmailBatch(t, x.deps, id);
+      const mail = x.transport.sent.slice(before).map((m) => JSON.stringify(m));
+      assert(mail.length === 1 && mail[0]!.includes('https://cal.example.com/a1') && !mail[0]!.includes('{{'), `sent: ${mail.length}, ${mail[0]?.slice(0, 200)}`);
+      return 'Cara (A1 has a link) sent with A1’s link; Zara (A2 has none, nor the owner sending) skipped no_booking_link; read-only may not set one';
     }),
   );
 

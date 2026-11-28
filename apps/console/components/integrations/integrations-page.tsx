@@ -3,6 +3,8 @@ import { IntegrationError, listIntegrationSlots, stubEnabled, tokenKeysFromEnv, 
 import contactStyles from '@/components/contacts/contacts.module.css';
 import { getConsoleDb } from '../../lib/db';
 import { requireConsoleAccess } from '../../lib/require-console-access';
+import { getBookingLink, mayEditBookingLink } from '@repo/core/team';
+import { BookingLinkForm } from './booking-link-form';
 import { FeatureCard, IntegrationCard } from './integration-ui';
 import styles from './integrations.module.css';
 
@@ -51,8 +53,9 @@ export async function IntegrationsPage({
   const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   let slots: Awaited<ReturnType<typeof listIntegrationSlots>> = [];
   let loadError: string | null = null;
+  let bookingUrl: string | null = null;
   try {
-    slots = await listIntegrationSlots(getConsoleDb(), session.actor);
+    [slots, bookingUrl] = await Promise.all([listIntegrationSlots(getConsoleDb(), session.actor), getBookingLink(getConsoleDb(), session.actor)]);
   } catch (err) {
     loadError = err instanceof IntegrationError ? err.message : 'Failed to load connectors';
   }
@@ -207,6 +210,18 @@ export async function IntegrationsPage({
           </div>
 
           <div className={styles.panelBody}>
+            {view === 'all' && !q ? (
+              <section className={styles.section}>
+                <div>
+                  <h3 className={styles.sectionTitle}>Your booking link</h3>
+                  <p className={styles.note}>
+                    Your own booking page (Calendly, Google appointment schedule or any https link). A template with {'{{booking_link}}'} gives
+                    each person their own agent&apos;s link; someone whose agent has none is skipped.
+                  </p>
+                </div>
+                <BookingLinkForm initial={bookingUrl} mayEdit={mayEditBookingLink(session.actor)} />
+              </section>
+            ) : null}
             {shownSections.map((section) => (
               <section key={section.key} className={styles.section}>
                 <div>

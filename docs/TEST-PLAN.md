@@ -2553,3 +2553,18 @@ On dev nothing runs the minute tick: a run starts and moves on only when the wor
 | DD8 | Open "Each step" on that run | Each step named as on the card (“Welcome”, “Liam Carter”, “Call Sara”); Email: Done · <time>; Text: Due · <time>; the rest "Waiting · 24 h after the step before", "Right after the step before", "3 days after the step before"; none with a made-up time |
 | DD9 | New chat on Overview: "pause the new-lead automation" (made in another chat), approve | The right panel shows the workflow itself (Off, its History), not a "Done in this chat" card; resume from the same chat → Active |
 | DD10 | Stop a run (DD3), then "Each step" | The steps not sent read "Skipped", with no time; the run says "Stopped by hand…" |
+
+## DE — Round-robin, tags, Nurture, each agent's booking link (ADR 0107)
+
+Console, Harbour Realty (TEST) as the owner, "Workflow emails" and "Workflow texts" on. The engine side is in smoke ("Workflows: in turn, tags, Nurture, booking link").
+
+| # | Do | Expect |
+|---|---|---|
+| DE1 | Connectors → "Your booking link": `https://calendly.com/liam`, Save; then `http://x.com` | Saved (toast); the second refused: "Use an https:// link…". A read-only member sees the box disabled |
+| DE2 | Bulk email: a template "Booking" with `{{booking_link}}`; send to one contact whose agent has a link and one whose agent has none | The first ready; the second "Their agent has no booking link yet…"; the email that goes has the agent's link, no braces |
+| DE3 | A contact → Tags: add "Cold", then "cold", then × on Cold | One chip "Cold" (the second is the same tag); × removes it; timeline "Tag added · Cold", "Tag removed · Cold" |
+| DE4 | Customers → Tag filter "Cold" | Only the tagged people; their rows show the tag beside the roles |
+| DE5 | Leads: set a lead to Nurture; open its contact | "Nurture" in the status list; the contact's lead summary counts it under Nurture |
+| DE6 | AI Assistant: `When a new lead comes in, give it to Liam, Olivia and Noah in turn, tell the agent it went to, set it to Contacted, email them the Welcome template, wait 2 hours, text them the Hi template, wait 1 day, set a next action "Call {{contact_first_name}}", email them the Booking template, wait 3 days, tag them Cold and move them to Nurture. Agency-wide.` | One card, Then 1–12: "Give the lead and the contact to the next of Liam Carter, Olivia Nguyen, Noah Patel, in turn", "Message the agent it was given to: …", …, "Tag the contact “Cold”", "Move the lead to Nurture" |
+| DE7 | Approve DE6; record three enquiries | Leads (and their contacts) go to Liam, Olivia, Noah in turn; the right panel names each run's agent in its first step ("Give the lead to Olivia Nguyen, in turn") |
+| DE8 | Customers → Export CSV | A last column `tags` ("Cold, VIP") |

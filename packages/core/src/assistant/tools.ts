@@ -521,6 +521,7 @@ async function findContacts(
     {
       ...(input.text ? { q: input.text } : {}),
       ...(input.role ? { role: input.role } : {}),
+      ...(input.tag ? { tag: input.tag } : {}),
       ...(input.assigned === 'me' ? { assigned: 'me' as const } : {}),
       ...(input.include_archived ? { archived: 'all' as const } : {}),
     },
@@ -534,6 +535,7 @@ async function findContacts(
       archivedAt: contact.archivedAt,
       assignedTo: contact.assignedTo,
       assigneeName: assignee.name,
+      tags: contact.tags,
       roles: sql<unknown>`(select array_agg(r.role order by r.role) from contact_role r where r.contact_id = ${contact.id})`,
       total: sql<number>`count(*) over()`,
     })
@@ -549,6 +551,7 @@ async function findContacts(
     id: r.id,
     name: r.name,
     roles: rolesOf(r.roles),
+    tags: r.tags ?? [],
     assigneeName: r.assignedTo ? (r.assignedTo === actor.userId ? 'you' : r.assigneeName ?? 'a team member') : null,
     archived: Boolean(r.archivedAt),
   }));
@@ -559,7 +562,7 @@ async function findContacts(
       note: DATA_NOTE,
       total,
       shown: shown.length,
-      contacts: shown.map((c) => ({ ref: c.handle, name: c.name, roles: c.roles, assigned_to: c.assigneeName, archived: c.archived })),
+      contacts: shown.map((c) => ({ ref: c.handle, name: c.name, roles: c.roles, ...(c.tags.length ? { tags: c.tags } : {}), assigned_to: c.assigneeName, archived: c.archived })),
     },
   };
 }

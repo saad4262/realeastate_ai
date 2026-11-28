@@ -157,6 +157,21 @@ function actionsFrom(ctx: Pick<ToolContext, 'handles'>, list: z.infer<typeof cre
         built = { type: a.type, to: ids, subject: a.subject, body: a.body };
         break;
       }
+      // ADR 0107
+      case 'assign_in_turn': {
+        const ids = (a.members ?? []).map(member);
+        if (ids.length < 2 || ids.some((v) => !v)) return { problem: `${where}action ${i + 1} (assign_in_turn) needs members: 2 to 20 M references from find_team_members` };
+        built = { type: a.type, among: ids };
+        break;
+      }
+      case 'message_assigned_agent':
+        if (need('subject') || need('body')) return { problem: (need('subject') ?? need('body'))! };
+        built = { type: a.type, subject: a.subject, body: a.body };
+        break;
+      case 'tag_contact':
+        if (need('tag')) return { problem: need('tag')! };
+        built = { type: a.type, tag: a.tag };
+        break;
       case 'send_template_email': {
         const id = a.template ? resolveHandle(ctx.handles, a.template, 'template') : null;
         if (!id) return { problem: `${where}action ${i + 1} (send_template_email) needs template: a T reference from list_templates` };

@@ -46,6 +46,7 @@ export async function loadContactHead(db: DbOrTx, actor: Actor, contactId: strin
       emailOptOutAt: contact.emailOptOutAt,
       archivedAt: contact.archivedAt,
       mergedIntoId: contact.mergedIntoId,
+      tags: contact.tags,
       createdAt: contact.createdAt,
       updatedAt: contact.updatedAt,
       roles: sql<unknown>`(
@@ -103,6 +104,8 @@ export type ContactView = {
   missing: MissingDetail[];
   source: ContactSource;
   roles: ContactRoleKind[];
+  /** ADR 0107: free tags, as typed. */
+  tags: string[];
   /** Tags read off what the person did, not chosen by anyone — shown as such. */
   inferredRoles: ContactRoleKind[];
   assignedTo: string | null;
@@ -179,6 +182,7 @@ export async function getContact(
     missing: missingDetails(row),
     source: row.source as ContactSource,
     roles: roleArray(row.roles),
+    tags: row.tags ?? [],
     inferredRoles: roleArray(row.inferredRoles),
     assignedTo: row.assignedTo,
     assigneeName: row.assignedTo ? row.assigneeName || row.assigneeEmail || null : null,

@@ -50,6 +50,7 @@ export async function checkWorkflow(db: DbOrTx, actor: Actor, scope: WorkflowSco
     if (a.type === 'send_template_sms') smsTemplates.add(a.template_id);
     if (a.type === 'assign_lead' || a.type === 'assign_contact') members.add(a.to);
     if (a.type === 'message_colleagues') a.to.forEach((m) => members.add(m));
+    if (a.type === 'assign_in_turn') a.among.forEach((m) => members.add(m));
     if (a.type === 'send_template_email') templates.add(a.template_id);
   }
   const listings = new Set<string>();
@@ -92,6 +93,7 @@ export async function namesFor(db: DbOrTx, agencyId: string, spec: WorkflowSpec)
   for (const a of allActions(spec)) {
     if (a.type === 'assign_lead' || a.type === 'assign_contact') ids.add(a.to);
     if (a.type === 'message_colleagues') a.to.forEach((m) => ids.add(m));
+    if (a.type === 'assign_in_turn') a.among.forEach((m) => ids.add(m));
   }
   const listings = new Set<string>();
   for (const c of spec.conditions) {

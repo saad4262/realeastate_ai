@@ -76,3 +76,4 @@ export {
   type RemovalReport,
   type RemovedMember,
 } from './offboarding';
+export { BOOKING_URL_MAX, BookingLinkError, getBookingLink, mayEditBookingLink, parseBookingUrl, setBookingLink } from './booking-link';

@@ -30,6 +30,8 @@ import {
   type CreateContactInput,
   type UpdateContactInput,
   type ContactRoleKind,
+  CONTACT_TAG_LIMITS,
+  tidyTag,
 } from './contact-schema';
 import { loadContactHead } from './get-contact';
 import { CONTACT_NOT_FOUND, ContactError, roleArray } from './list-contacts';
@@ -680,6 +682,54 @@ export async function recordMarketingConsent(
     await recordActivity(tx, actor, head.row.agencyId, head.row.id, 'consent_recorded', { note, ...(opts.via ? { via: opts.via } : {}) });
   });
   return 'recorded';
+}
+
+/**
+ * ADR 0107: put a free tag on a person ("Cold", "VIP"). Whoever may edit the contact may; a workflow does it as its owner.
+ * The same word in any case is there once; at most 20. One guarded update, so two at once never add it twice.
+ */
+export async function tagContact(db: Db, actor: Actor, contactId: string, raw: string, opts: ChangeOrigin = {}): Promise<'added' | 'already'> {
+  const head = await editableHead(db, actor, contactId, 'tag them');
+  const tag = tidyTag(raw);
+  if (!tag) throw new ContactError('invalid', `A tag is 1 to ${CONTACT_TAG_LIMITS.chars} characters`);
+  const has = (head.row.tags ?? []).some((t) => t.toLowerCase() === tag.toLowerCase());
+  if (has) return 'already';
+  if ((head.row.tags ?? []).length >= CONTACT_TAG_LIMITS.perContact) throw new ContactError('invalid', `A contact has at most ${CONTACT_TAG_LIMITS.perContact} tags`);
+  return db.transaction(async (tx) => {
+    const [done] = await tx
+      .update(contact)
+      .set({ tags: sql`array_append(${contact.tags}, ${tag}::text)`, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(contact.id, head.row.id),
+          eq(contact.agencyId, head.row.agencyId),
+          sql`not exists (select 1 from unnest(${contact.tags}) x where lower(x) = lower(${tag}))`,
+          sql`cardinality(${contact.tags}) < ${CONTACT_TAG_LIMITS.perContact}`,
+        ),
+      )
+      .returning({ id: contact.id });
+    if (!done) return 'already' as const;
+    await recordActivity(tx, actor, head.row.agencyId, head.row.id, 'tag_added', { tag, ...(opts.via ? { via: opts.via } : {}) });
+    return 'added' as const;
+  });
+}
+
+/** ADR 0107: take a tag off, whatever its case. Same permission as putting it on. */
+export async function untagContact(db: Db, actor: Actor, contactId: string, raw: string, opts: ChangeOrigin = {}): Promise<'removed' | 'none'> {
+  const head = await editableHead(db, actor, contactId, 'untag them');
+  const tag = tidyTag(raw);
+  const had = tag ? (head.row.tags ?? []).find((t) => t.toLowerCase() === tag.toLowerCase()) : undefined;
+  if (!had) return 'none';
+  return db.transaction(async (tx) => {
+    const [done] = await tx
+      .update(contact)
+      .set({ tags: sql`array(select x from unnest(${contact.tags}) x where lower(x) <> lower(${had}))`, updatedAt: sql`now()` })
+      .where(and(eq(contact.id, head.row.id), eq(contact.agencyId, head.row.agencyId), sql`exists (select 1 from unnest(${contact.tags}) x where lower(x) = lower(${had}))`))
+      .returning({ id: contact.id });
+    if (!done) return 'none' as const;
+    await recordActivity(tx, actor, head.row.agencyId, head.row.id, 'tag_removed', { tag: had, ...(opts.via ? { via: opts.via } : {}) });
+    return 'removed' as const;
+  });
 }
 
 /** Withdraw a recorded consent, with the reason on the timeline. Same permission as recording it. */

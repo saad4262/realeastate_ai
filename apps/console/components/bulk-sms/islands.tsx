@@ -80,7 +80,8 @@ export function SmsTemplateForm({ basePath, templateId, initial }: { basePath: s
         <textarea className={contactStyles.textarea} rows={5} value={body} onChange={(e) => setBody(e.target.value)} maxLength={SMS_TEMPLATE_MAX} />
         <span className={contactStyles.hint}>
           {partsWords(body)} · up to {SMS_TEMPLATE_MAX} characters before the STOP line. Merge fields: {BASE_MERGE_FIELDS.map((f) => `{{${f}}}`).join(' ')}; from a
-          listing&apos;s Matching buyers tab also {LISTING_MERGE_FIELDS.map((f) => `{{${f}}}`).join(' ')}.
+          listing&apos;s Matching buyers tab also {LISTING_MERGE_FIELDS.map((f) => `{{${f}}}`).join(' ')}. {'{{booking_link}}'}: their own agent&apos;s booking page (set on
+          Connectors); someone whose agent has none is skipped.
         </span>
       </label>
       <div className={contactStyles.field}>

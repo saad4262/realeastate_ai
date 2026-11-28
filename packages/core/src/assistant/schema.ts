@@ -9,7 +9,7 @@ import { QUERY_MAX_CHARS } from '../open-query/guard';
 import { AU_STATES, PROPERTY_TYPES } from '../listings/listing-schema';
 import { SKILL_KEYS } from '../skill-switches/catalog';
 import { DEAL_STAGES } from '../deals/stages';
-import { CALLER_KINDS, DEAL_SIDES, DEAL_TRIGGER_STAGES, TRIGGER_KINDS, WORKFLOW_LIMITS } from '../workflows/catalog';
+import { CALLER_KINDS, DEAL_SIDES, DEAL_TRIGGER_STAGES, TRIGGER_KINDS, WORKFLOW_LIMITS, LEAD_STATUSES } from '../workflows/catalog';
 
 /**
  * The console assistant's contract (docs/adr/0025). Phase A: read tools only.
@@ -112,6 +112,8 @@ export const findContactsInput = z
   .object({
     text: text.optional(),
     role: z.enum(CONTACT_ROLES).optional(),
+    /** ADR 0107: people with this tag, any case. */
+    tag: z.string().trim().min(1).max(30).optional(),
     /** `me`: only contacts assigned to the person. Anything else: everyone they may see. */
     assigned: z.enum(['me', 'any']).default('any'),
     include_archived: z.boolean().default(false),
@@ -120,7 +122,7 @@ export const findContactsInput = z
   .strict();
 
 export const LEAD_SINCE = ['today', '7d', '30d', '90d'] as const;
-export const LEAD_STATUSES = ['new', 'contacted', 'qualified', 'closed'] as const;
+export { LEAD_STATUSES };
 
 export const findLeadsInput = z
   .object({
@@ -324,7 +326,7 @@ export const workflowTriggerInput = z
   .object({
     kind: z.enum(TRIGGER_KINDS),
     source: z.enum(['website', 'manual', 'import']).optional(),
-    lead_status: z.enum(['new', 'contacted', 'qualified', 'closed']).optional(),
+    lead_status: z.enum(LEAD_STATUSES).optional(),
     listing_status: z.enum(['live', 'under_offer', 'sold', 'withdrawn']).optional(),
     /** lead.no_reply 1–14; appraisal.not_listed 1–30 (checked per kind when the spec is built). */
     days: z.number().int().min(1).max(30).optional(),
@@ -356,14 +358,17 @@ export const workflowConditionInput = z
   .strict();
 export const workflowActionInput = z
   .object({
-    type: z.enum(['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'send_template_sms', 'draft_email', 'save_ai_brief', 'wait', 'wait_until']),
+    type: z.enum(['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'assign_in_turn', 'message_assigned_agent', 'tag_contact', 'send_template_email', 'send_template_sms', 'draft_email', 'save_ai_brief', 'wait', 'wait_until']),
     text: z.string().trim().min(1).max(2000).optional(),
     in_days: z.number().int().min(0).max(60).optional(),
     mail_me: z.boolean().optional(),
-    lead_status: z.enum(['new', 'contacted', 'qualified', 'closed']).optional(),
+    lead_status: z.enum(LEAD_STATUSES).optional(),
     member: memberHandleSchema.optional(),
-    members: z.array(memberHandleSchema).min(1).max(10).optional(),
+    /** message_colleagues (up to 10), or assign_in_turn (2 to 20, ADR 0107). */
+    members: z.array(memberHandleSchema).min(1).max(20).optional(),
     subject: z.string().trim().min(1).max(200).optional(),
+    /** tag_contact (ADR 0107): the word, as the person said it. */
+    tag: z.string().trim().min(1).max(30).optional(),
     body: z.string().trim().min(1).max(2000).optional(),
     template: templateHandleSchema.optional(),
     instructions: z.string().trim().min(1).max(1000).optional(),

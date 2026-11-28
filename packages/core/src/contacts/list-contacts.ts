@@ -41,6 +41,8 @@ export type ContactRow = {
   /** Starting details still to get (ADR 0079). */
   missing: MissingDetail[];
   roles: ContactRoleKind[];
+  /** ADR 0107. */
+  tags: string[];
   source: ContactSource;
   assignedTo: string | null;
   assigneeName: string | null;
@@ -104,6 +106,8 @@ export function contactQueryFilters(actor: Actor, query: Partial<ContactListQuer
       sql`exists (select 1 from contact_role r where r.contact_id = ${contact.id} and r.role = ${query.role})`,
     );
   }
+  // ADR 0107: whatever its case — "cold" finds "Cold". Within one agency's visible contacts, so no index of its own.
+  if (query.tag) filters.push(sql`exists (select 1 from unnest(${contact.tags}) x where lower(x) = lower(${query.tag}))`);
   if (query.source) filters.push(eq(contact.source, query.source));
   if (query.assigned === 'me') filters.push(eq(contact.assignedTo, actor.userId));
   else if (query.assigned === 'none') filters.push(isNull(contact.assignedTo));
@@ -154,6 +158,7 @@ export async function listContacts(
       assigneeEmail: assignee.email,
       createdAt: contact.createdAt,
       archivedAt: contact.archivedAt,
+      tags: contact.tags,
       roles: sql<unknown>`(
         select array_agg(r.role order by r.role) from contact_role r where r.contact_id = ${contact.id}
       )`,
@@ -175,6 +180,7 @@ export async function listContacts(
       place: [r.addressSuburb, r.addressState, r.addressPostcode].filter(Boolean).join(' ') || null,
       missing: missingDetails(r),
       roles: roleArray(r.roles),
+      tags: r.tags ?? [],
       source: r.source as ContactSource,
       assignedTo: r.assignedTo,
       assigneeName: r.assignedTo ? r.assigneeName || r.assigneeEmail || null : null,
@@ -188,6 +194,19 @@ export async function listContacts(
     mayCreate: can(actor, 'contact:create', directory),
     seesAll,
   };
+}
+
+/** ADR 0107: every tag on the people this actor may see, A–Z, for the directory's filter. One statement. */
+export async function listContactTags(db: Db, actor: Actor): Promise<string[]> {
+  if (!actor.agencyId || !can(actor, 'contact:read', { type: 'contact', agencyId: actor.agencyId })) return [];
+  const seesAll = can(actor, 'contact:read_all', { type: 'contact', agencyId: actor.agencyId });
+  const rows = await db
+    .selectDistinct({ tag: sql<string>`unnest(${contact.tags})` })
+    .from(contact)
+    .where(and(...contactQueryFilters(actor, { archived: 'all' }, seesAll)))
+    .orderBy(sql`1`)
+    .limit(200);
+  return rows.map((r) => r.tag);
 }
 
 export { roleArray };
