@@ -1,7 +1,7 @@
 import { catalogForPrompt } from '@repo/core/semantic';
 
 /**
- * The console assistant's fixed system prompt (docs/adr/0025; v32 follows ADR 0105 — a workflow holds up to 12 steps, waits
+ * The console assistant's fixed system prompt (docs/adr/0025; v32 follows ADR 0106 — a workflow holds up to 12 steps, waits
  * included — on top of v31, which follows ADR 0084 — a contacts import needs a
  * name, email, phone and address on every row, the same email updates the profile, no longer skipped, and create_contact
  * asks for the same four and updates that profile too — on top of

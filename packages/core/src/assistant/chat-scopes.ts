@@ -184,7 +184,7 @@ const BUILD_TOOLS = ['create_workflow', 'change_workflow'] as const satisfies re
 
 export const CHAT_SCOPE_RULES: Readonly<Record<ChatScope, ScopeRule>> = Object.freeze({
   // The AI Assistant on Overview (the user, 2026-11-10): looks things up and does everyday work. A skill's job is its own assistant's,
-  // except workflows (ADR 0104, the user 2026-11-27): Overview builds and manages them, email and text steps in one; each step's switch is asked.
+  // except workflows (ADR 0105, the user 2026-11-27): Overview builds and manages them, email and text steps in one; each step's switch is asked.
   general: {
     tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_appointments', 'find_listings', 'find_buyers', 'find_deals', 'find_team_members', 'find_agents', 'find_colleagues', 'find_saved_lists', 'find_skills', 'find_workflows', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'describe_data', 'query_data', 'search_documents', 'read_document', 'start_import', ...EVERYDAY_ACTIONS, 'update_agent', 'remove_agent', 'invite_agent', 'schedule_team_meeting', ...BUILD_TOOLS, 'open_chat'],
     planSteps: EVERYDAY_STEPS,
@@ -256,7 +256,7 @@ function workflowStepTypes(input: unknown): string[] {
   return all.map((a) => a.type ?? '');
 }
 
-/** ADR 0104: the switch each step of a proposed workflow needs on, whichever chat builds it — the ones its run will ask. */
+/** ADR 0105: the switch each step of a proposed workflow needs on, whichever chat builds it — the ones its run will ask. */
 export function workflowStepSkills(input: unknown): SkillKey[] {
   return [...new Set(workflowStepTypes(input).map((t) => SKILL_OF_WORKFLOW_STEP[t]).filter((k): k is SkillKey => k !== undefined))];
 }

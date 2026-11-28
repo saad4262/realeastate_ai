@@ -822,3 +822,26 @@ export function buildCreditUsageEmail(input: CreditUsageEmailInput): Transaction
   const text = [heading, intro, '', fix, `Settings: ${input.settingsUrl}`, '', ...textFooter(footer)].join('\n');
   return { kind: 'transactional', to: input.to, from: input.from, subject: heading, html, text, tags: { kind: `credits-${input.level}` } };
 }
+
+// ── A member's full data export is ready (ADR 0104 phase 3) ─────────────────
+
+export type DataExportReadyEmailInput = {
+  to: { email: string; name?: string };
+  from: { email: string; name: string };
+  postalAddress: string;
+  /** The page that signs each download; the email never carries a file link. */
+  pageUrl: string;
+  /** How many hours the files are kept. */
+  hours: number;
+};
+
+export function buildDataExportReadyEmail(input: DataExportReadyEmailInput): TransactionalMessage {
+  requireSenderFooter(input.from, input.postalAddress, 'data export notice');
+  const heading = 'Your data export is ready';
+  const intro = `The files you asked for are ready to download. They are kept for ${input.hours} hours, then deleted.`;
+  const after = 'Only you can download them, and only while signed in. If you did not ask for this, tell your agency owner.';
+  const footer: Footer = { from: input.from, postalAddress: input.postalAddress, why: 'Sent because you asked to download your data.' };
+  const html = layout({ heading, intro, body: '', button: { label: 'Download your data', url: input.pageUrl }, after, footer });
+  const text = [heading, intro, '', `Download: ${input.pageUrl}`, '', after, '', ...textFooter(footer)].join('\n');
+  return { kind: 'transactional', to: input.to, from: input.from, subject: heading, html, text, tags: { kind: 'data-export' } };
+}

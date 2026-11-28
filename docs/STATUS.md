@@ -1,4 +1,4 @@
-# Status — 2026-11-25 (Claude Code, Mac)
+# Status — 2026-11-27 (Claude Code, Mac)
 
 Short on purpose: where things stand now. History is in `docs/SESSION.md` and `docs/archive/`. The plan and the V1 to-do list
 are `docs/PLATFORM-PLAN.md` (section 14, with progress). Overwrite this file at each handoff; do not append.
@@ -8,12 +8,32 @@ are `docs/PLATFORM-PLAN.md` (section 14, with progress). Overwrite this file at 
 V1 production-readiness: about 12% (PLATFORM-PLAN 14). Steps 0–2 nearly done; step 3 (backups) next.
 Branches waiting for a PR and merge: `chore/dev-db-and-prod-guard` (production guard + 0001 extensions fix), `docs/platform-plan` (this).
 
+## Agency data export (ADR 0104) — LIVE: merge `569792b` on `main`, 2026-11-27
+On the user's go: production backup `prod-20261127T104903Z.dump.enc` (145 tables, checked: no export_job, 6 agencies), migration
+**0109 `export_job` on production** (110 applied; read-only check: 14 columns, 3 indexes, RLS on, no policy), merge `--no-ff`, pushed.
+Vercel: admin, agent, agencyy, users Ready; the other five projects (`*-console*`, `realestate-ai-web`) fail on every commit, as before.
+Live: `/settings/data`, `/my-data` and `/api/exports/*` all ask for sign-in when signed out.
+- Quick CSV on Customers (+ notes), Listings, Leads, Calendar, Pipeline; full export ("Download your data") built by the minute tick's
+  new `bulk` lane into `exports/` in the documents bucket, bell + email, 60 s signed links for the asker, deleted after 24 h.
+- Checked before merge: `pnpm test` (core 2606, AI 466), typecheck, lint, console and web builds; smoke on dev; TEST-PLAN DA1–DA18
+  in a browser on dev (8/8, real Storage, Resend `delivered`). NOT done live: an export on production (no real agency asked yet).
+- **Migration number clash:** `feat/workflow-stop-on-reply` (ADR 0103, worktree `realestate_ai-autom`) also has a `0109`. It must be
+  renamed 0110 (file, journal idx, snapshot) before it merges; its `when` is later than this one's, so drizzle applies it after.
+- Later (the user): the privacy policy must mention export; a large agency's timing is not measured.
+
+## Import: exact address (ADR 0029 amendment) — LIVE: merge `3e2b132` on `main`, all 4 Vercel builds Ready, 2026-11-27
+Google's nearest guess for an unknown address ("14 Henry St" → "214 Henry St") is no longer kept: the CSV dry run marks the row
+✗ with what Google found; the listing form's server geocode and the backfill leave it unpinned. No migration.
+Checked on the merge: typecheck, lint, `pnpm test` (core 2583, AI 466), both `next build`s, smoke "Listing import" 7/7 on dev;
+break-tests red (on the branch). **Not done, on purpose (the user: a separate task):** production listings pinned before this
+fix keep their pins; nothing was backfilled or rewritten. Only new imports and saves are checked. The export merge `569792b` above contains this merge.
+
 ## Listing import: photos from a folder (ADR 0102) — LIVE: merge `8c8a17b` on `main`, all 4 Vercel builds Ready, 2026-11-25
 CSV + a dropped folder of photos, matched by the address in a folder name at any depth (or the listing id); the browser
 shrinks and uploads straight to Storage; every listing says what photos it got (links or folder). No migration.
 Checked: `pnpm test`, typecheck, lint, smoke group (2/2, dev), break-tests, Playwright on the local console against dev
 (Chromium + WebKit: Y18/19/21/22/23/24 pass). NOT run: Firefox, Edge, a real folder drag, Y25 timing (do it live).
-Found (not fixed, ADR 0029's): the dry run takes Google's nearest match for an address it cannot place exactly.
+Found and fixed since: the dry run took Google's nearest match for an address it could not place exactly (section above).
 
 ## Home page search like realestate.com.au (ADR 0099) — LIVE: `main` = `1d3ad71` (ADR 0099 merge `ba6ba16`, then the no-lag fix `501eb4b` + `1d3ad71`), 2026-11-25
 On the user's go: production backup `prod-20261125T065102Z.dump.enc` (145 tables), migration 0108 on production (109 applied,

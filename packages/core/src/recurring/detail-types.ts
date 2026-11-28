@@ -2,7 +2,7 @@ import type { AutomationRow } from './list';
 
 /** One automation in full, for the details panel (the user, 2026-11-10). No database here: the browser imports it. */
 
-export type RunProgress = { id: string; status: string; at: string; finishedAt: string | null; total: number; sent: number; failed: number; skipped: number; remaining: number; detail: string | null; manual: boolean; /** ADR 0105: a workflow's run still going that this person may stop. */ canStop?: boolean };
+export type RunProgress = { id: string; status: string; at: string; finishedAt: string | null; total: number; sent: number; failed: number; skipped: number; remaining: number; detail: string | null; manual: boolean; /** ADR 0106: a workflow's run still going that this person may stop. */ canStop?: boolean };
 
 export type AutomationDetail = AutomationRow & {
   /** The run going now, with what is left. */

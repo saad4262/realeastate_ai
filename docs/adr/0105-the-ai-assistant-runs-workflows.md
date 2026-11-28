@@ -1,4 +1,4 @@
-# 0104 — The AI Assistant builds and runs workflows, email and text in one
+# 0105 — The AI Assistant builds and runs workflows, email and text in one
 
 **Status:** accepted, 2026-11-27 (the user: "Overview wala AI agent sab control kare"; steps 2 and 3 of the plan after ADR 0103). Amends ADR 0089's final shape and ADR 0088's "no overlap". No migration.
 

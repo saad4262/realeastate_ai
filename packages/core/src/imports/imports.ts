@@ -9,7 +9,8 @@ import { setListingStatus } from '../listings/publish-listing';
 import { setImportedListingFields } from '../listings/import-fields';
 import { ListingError } from '../listings/listing-schema';
 import { addressKey } from '../listings/address-key';
-import { geocodeAddress } from '../geo/places';
+import { geocodeAddress, sameAddress } from '../geo/places';
+import type { AddressParts } from '../geo/place-schema';
 import { activeMemberActor } from '../team/member-actor';
 import { isSkillOn } from '../skill-switches/switches';
 import { agencyTimeZone } from '../widgets/registry';
@@ -412,6 +413,11 @@ async function validateChunk(db: Db, actor: Actor, imp: ImportRow, deps: ImportD
     } as never).catch(() => null);
     if (!hit || hit.kind !== 'address') {
       checked.push({ id: r.id, rowNumber: r.rowNumber, row: null, errors: [{ column: 'Address', message: 'Google could not find this street address — check it' }], cellWarnings: [], key: null, pin: null });
+      continue;
+    }
+    // Never guessed (ADR 0029): Google's nearest match to an address it does not know is another house.
+    if (!sameAddress(row.property as AddressParts, hit)) {
+      checked.push({ id: r.id, rowNumber: r.rowNumber, row: null, errors: [{ column: 'Address', message: `Google found “${hit.formatted}”, not this address — check the street number, street and suburb` }], cellWarnings: [], key: null, pin: null });
       continue;
     }
     checked.push({ id: r.id, rowNumber: r.rowNumber, row, errors: [], cellWarnings, key: addressKey(row.property as never), pin: hit });

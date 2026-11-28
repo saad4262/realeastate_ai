@@ -76,6 +76,7 @@ export const HELP_PAGES: Readonly<Record<string, string>> = Object.freeze({
   '/my-commission': 'Your commission: earned, expected and paid out.',
   '/settings/integrations': 'Connect the agency’s accounts, such as Zoom, Google Reviews and Google Sheets. Phone & SMS is here too.',
   '/my-integrations': 'Connect your own accounts, such as Gmail and Zoom. My phone is here too.',
+  '/my-data': 'Download your data: your customers, listings, leads, messages, photos and documents as spreadsheets and zip files. Kept 24 hours.',
   '/security': 'Two-step sign-in with an authenticator app, a new password, and Sign out of all devices.',
   '/settings': 'The agency’s settings. Connectors is the section that exists so far.',
 });
@@ -125,6 +126,7 @@ const HELP_DETAILS: Readonly<Record<HelpSurface, readonly HelpDetail[]>> = Objec
     { pattern: '/settings/reviews', name: 'Google reviews', what: 'The agency’s public Google rating and reviews, shown on live listings’ pages.' },
     { pattern: '/ai', name: 'Old AI page', what: 'An old link: it opens the Overview, where the agency assistant is.' },
     { pattern: '/settings/audit', name: 'Audit log', what: 'Who changed the team, sent or withdrew invites, deleted listings or resumed sends, and when. Owners and admins.' },
+    { pattern: '/settings/data', name: 'Download your data', what: 'Everything the agency holds, as spreadsheets with the photos and documents, in zip files kept 24 hours. Only the person who asked can download them.' },
     { pattern: '/skills/library/new', name: 'New library skill', what: 'Add a skill to the agency’s own library.' },
     { pattern: '/team/onboarding', name: 'Agent onboarding', what: ONBOARDING },
     { pattern: '/team/onboarding/dispatch', name: 'Agent onboarding: dispatch', what: ONBOARDING },

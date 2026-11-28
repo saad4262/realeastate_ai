@@ -279,7 +279,7 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
   // A skill chat's actions need that skill on, the switch Bulk email's own page asks (ADR 0088). Old chats are not changed.
   const chatSkill = ctx.chatScope ? chatScopeSkillFor(ctx.chatScope, tool) : undefined;
   const needs = new Set<SkillKey>(chatSkill && (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(tool) ? [chatSkill] : []);
-  // ADR 0104: a workflow — emails and texts in one — needs each step's switch on, the ones its runs will ask.
+  // ADR 0105: a workflow — emails and texts in one — needs each step's switch on, the ones its runs will ask.
   if (tool === 'create_workflow') for (const k of workflowStepSkills(parsed.data)) needs.add(k);
   for (const key of needs) {
     // A `pair` skill needs the agency's switch AND this person's, which the set below cannot say.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Db } from '@repo/db';
 import type { GeoProvider, ResolvedPlace } from './place-schema';
-import { geocodeAddress, resolvePlace } from './places';
+import { geocodeAddress, resolvePlace, sameAddress } from './places';
 
 const bondi: ResolvedPlace = {
   placeId: 'ChIJ-wbsR5utEmsR7MvvTmc-DEU',
@@ -189,5 +189,36 @@ describe('geocodeAddress', () => {
       // state centroid — a pin 400 km from the property.
       kind: 'address',
     });
+  });
+});
+
+describe('sameAddress: Google’s nearest guess is not this address', () => {
+  const asked = { streetNumber: '14', street: 'Henry St', suburb: 'Pakenham', state: 'VIC', postcode: '3810' };
+  const found = (p: Partial<ResolvedPlace>) => ({ streetNumber: '14', street: 'Henry Street', suburb: 'Pakenham', postcode: '3810', ...p });
+
+  it('the same address, however it is written', () => {
+    expect(sameAddress(asked, found({}))).toBe(true);
+    expect(sameAddress({ ...asked, suburb: 'pakenham.' }, found({}))).toBe(true);
+    expect(sameAddress({ unit: '2', streetNumber: '6E', street: 'Main St', suburb: 'Officer', state: 'VIC', postcode: '3809' }, found({ streetNumber: '6e', street: 'Main Street', suburb: 'Officer', postcode: '3809' }))).toBe(true);
+    expect(sameAddress({ streetNumber: '32/6E', street: 'Main St', suburb: 'Officer', state: 'VIC', postcode: '3809' }, found({ streetNumber: '6E', street: 'Main Street', suburb: 'Officer', postcode: '3809' }))).toBe(true);
+    // Google's suburb boundary differs, the postcode agrees.
+    expect(sameAddress(asked, found({ suburb: 'Pakenham Upper' }))).toBe(true);
+    // Vacant land with no number.
+    expect(sameAddress({ streetNumber: '', street: 'Lot 12 Smith Rd', suburb: 'Clyde', state: 'VIC', postcode: '3978' }, found({ streetNumber: null, street: 'Smith Road', suburb: 'Clyde', postcode: '3978' }))).toBe(true);
+  });
+
+  it('refuses the four answers a dry run accepted on 2026-11-25', () => {
+    expect(sameAddress(asked, found({ streetNumber: '214' }))).toBe(false);
+    expect(sameAddress({ unit: '2', streetNumber: '6E', street: 'Main Street', suburb: 'Officer', state: 'VIC', postcode: '3809' }, found({ streetNumber: '34', street: 'Station Street', suburb: 'Officer', postcode: '3809' }))).toBe(false);
+    expect(sameAddress({ streetNumber: '3', street: 'Golden Wattle Court', suburb: 'Berwick', state: 'VIC', postcode: '3806' }, found({ streetNumber: '43', street: 'Golden Wattle Court', suburb: 'Cranbourne', postcode: '3977' }))).toBe(false);
+    expect(sameAddress({ streetNumber: '22', street: 'Station Street', suburb: 'Pakenham', state: 'VIC', postcode: '3810' }, found({ streetNumber: '522', street: 'Station Street' }))).toBe(false);
+  });
+
+  it('refuses another street, another suburb and postcode, or no street at all', () => {
+    expect(sameAddress(asked, found({ street: 'Henry Road' }))).toBe(false);
+    expect(sameAddress(asked, found({ suburb: 'Officer', postcode: '3809' }))).toBe(false);
+    expect(sameAddress(asked, found({ street: null }))).toBe(false);
+    // A number was given: "Lot"-style suffix matching does not apply.
+    expect(sameAddress({ ...asked, street: 'Old Henry St' }, found({}))).toBe(false);
   });
 });

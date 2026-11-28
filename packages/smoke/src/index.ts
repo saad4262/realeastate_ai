@@ -375,6 +375,10 @@ import { DATASET_IDS, DATASETS, runTile, tileSpecSchema, type TileSpec } from '@
 import { agentsNamedTwice, dataDictionary, missingAgents, runAsReader, runOpenQuery, runOpenTile, OPEN_QUERY_LIMITS, HIDDEN_TEXT, type OpenCell } from '@repo/core/open-query';
 import { leadScopeFilters as openLeadScope } from '@repo/core/leads';
 import { contactScopeFilters as openContactScope } from '@repo/core/contacts';
+import { exportJobHandler, expireExports, listMyExports, requestFullExport, signExportPart, startQuickExport, type ExportDeps, type QuickDataset } from '@repo/core/exports';
+import type { JobRow } from '@repo/core/jobs';
+import { strToU8, strFromU8, unzipSync } from 'fflate';
+import { parseCsv as parseExportCsv } from '@repo/core/imports';
 import { activeMemberActor, assignNeedsOwner, claimAgentInvite, listNeedsOwner, offboardingPreview, removedFromAgency, removeMember, restoreMember } from '@repo/core/team';
 import { runEmbeddingTick, type Embedder } from '@repo/core/assistant-search';
 import type { ToolContext } from '@repo/core/assistant';
@@ -7609,7 +7613,7 @@ async function main() {
       const x = await replyFixture(t);
       await x.mail('in', x.at(1));
       assertStopped(await x.afterAnHour());
-      // ADR 0104: what the AI Assistant reports, read in the list's one statement.
+      // ADR 0105: what the AI Assistant reports, read in the list's one statement.
       const mine = (await listWorkflows(t, x.w.actor)).find((wf) => wf.id === x.w.workflowId);
       assert(mine?.lastRun?.words === `stopped: ${STOPPED_BY_REPLY}`, `last run: ${JSON.stringify(mine?.lastRun)}`);
       return 'email in → "Stops second" never rang, task and step cancelled "Stopped: they emailed or texted back…"; the carry-on workflow rang its second; find_workflows\' last run says "stopped: …"';
@@ -7636,7 +7640,7 @@ async function main() {
     }),
   );
 
-  await check('ADR 0104: one workflow may email and then text — the server saves it, and lists both channels', async () =>
+  await check('ADR 0105: one workflow may email and then text — the server saves it, and lists both channels', async () =>
     inRollback(async (t) => {
       const w = await workflowFixture(t, { trigger: { kind: 'lead.created', source: 'manual' }, conditions: [], actions: [{ type: 'remind_owner', text: 'x', mail_me: false }] }, 'agency', 'owner');
       const mail = await createEmailTemplate(t, w.actor, { channel: 'email', name: `Mixed mail ${w.f.tag}`, subject: 'Thanks', body: 'Hi {{first_name}}' });
@@ -7649,8 +7653,8 @@ async function main() {
     }),
   );
 
-  // ── ADR 0105: stopping a run in flight, and workflows of up to 12 steps ───────────────────────
-  group('Workflows: stop a run, 12 steps (ADR 0105)');
+  // ── ADR 0106: stopping a run in flight, and workflows of up to 12 steps ───────────────────────
+  group('Workflows: stop a run, 12 steps (ADR 0106)');
 
   /** A1's workflow — a reminder, an hour's wait, a reminder — started for `leads` new leads, first steps run. */
   async function runningFixture(t: Db, leads: number) {
@@ -10005,6 +10009,8 @@ async function main() {
     'agency_google_place', 'search_embedding',
     // ADR 0076: which connected mailbox / calendar is active.
     'integration_choice',
+    // ADR 0104 phase 3: a member's full data export.
+    'export_job',
   ] as const;
   const CHILD_TABLES: [string, string, string][] = [
     ['team_member', 'team_id', 'team'],
@@ -10142,6 +10148,54 @@ async function main() {
     return { g, A, B, bIds };
   }
 
+  /** ADR 0104: the ids in a quick-export file, read back with the import's own CSV reader. */
+  const exportedIds = async (t: Db, actor: Actor, dataset: QuickDataset) => {
+    const { chunks } = await startQuickExport(t, actor, dataset, { archived: 'all' });
+    let csv = '';
+    for await (const c of chunks) csv += c;
+    // A header and nothing else is an empty book; the import's reader refuses that, so it is answered here.
+    if (csv.split('\r\n').filter(Boolean).length === 1) return [];
+    const { headers, rows } = parseExportCsv(csv.slice(1));
+    return rows.map((r) => r[headers.indexOf('id')]!).sort();
+  };
+
+  await check('a quick export holds exactly what each person’s own screens list, and is in the audit log with its count (ADR 0104)', () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      await scheduleAppointment(t, f.actor('a1'), f.contacts.p1, { title: 'A1 appraisal', type: 'appraisal', ...slot(2) });
+      await scheduleAppointment(t, f.actor('a2'), f.contacts.p2, { title: 'A2 meeting', type: 'meeting', ...slot(3) });
+      const shared = await createNote(t, f.actor('a1'), f.contacts.p1, `shared ${f.tag}`);
+      const secret = await createNote(t, f.actor('owner'), f.contacts.p1, `private ${f.tag}`, { isPrivate: true });
+      const same = (who: string, what: string, file: string[], screen: string[]) =>
+        assert(JSON.stringify(file) === JSON.stringify([...screen].sort()), `${who}: ${what} file ${file.length} vs screen ${screen.length}`);
+      const counts: string[] = [];
+      for (const who of ['a1', 'a2', 'owner', 'viewer'] as const) {
+        const actor = f.actor(who);
+        const contacts = await exportedIds(t, actor, 'contacts');
+        same(who, 'customers', contacts, (await listContacts(t, actor, { archived: 'all' })).rows.map((r) => r.id));
+        const all = can(actor, 'listing:read_all', { type: 'listing', agencyId: f.agencyId });
+        const listings = await exportedIds(t, actor, 'listings');
+        same(who, 'listings', listings, (await listAgencyListings(t, actor, { mine: !all })).map((r) => r.id));
+        const leads = await exportedIds(t, actor, 'leads');
+        same(who, 'leads', leads, (await listAgencyLeads(t, actor, { limit: 1000 })).rows.map((r) => r.id));
+        const appts = await exportedIds(t, actor, 'appointments');
+        const calendar = [...(await listAppointments(t, actor, { when: 'upcoming' })).rows, ...(await listAppointments(t, actor, { when: 'past' })).rows];
+        same(who, 'appointments', appts, calendar.map((r) => r.id));
+        const notes = await exportedIds(t, actor, 'notes');
+        const seesP1 = contacts.includes(f.contacts.p1);
+        assert(notes.includes(shared.id) === seesP1, `${who}: the shared note ${notes.includes(shared.id) ? 'is' : 'is not'} in the file`);
+        assert(notes.includes(secret.id) === (who === 'owner'), `${who}: the owner's private note ${notes.includes(secret.id) ? 'leaked into' : 'is missing from'} the file`);
+        await exportedIds(t, actor, 'deals');
+        counts.push(`${who} ${contacts.length}/${listings.length}/${leads.length}/${appts.length}/${notes.length}`);
+      }
+      const [log] = await t.execute<{ n: number; counted: number }>(sql`
+        select count(*)::int as n, count(*) filter (where (detail->>'complete')::boolean and detail ? 'rows')::int as counted
+        from audit_log where agency_id = ${f.agencyId} and action = 'data_exported'`);
+      assert(log?.n === 24 && log.counted === 24, `audit rows: ${JSON.stringify(log)}`);
+      return `customers/listings/leads/appointments/notes per person, equal to their screens: ${counts.join(', ')}; 24 audit rows, each counted`;
+    }),
+  );
+
   const A_ROLES = ['owner', 'a1', 'a2', 'viewer'] as const;
   const tolerate = <T,>(p: Promise<T>) => p.catch((e: unknown) => ({ refused: (e as { code?: string }).code ?? 'error' }));
 
@@ -10190,11 +10244,18 @@ async function main() {
           ['show_widget', runAssistantTool(ctx, 'show_widget', { widget: 'listings_by_status' })],
           ['listImports', listImports(t, actor)],
           ['getImport(B)', getImport(t, actor, B.ids.importId)],
+          ['listMyExports', listMyExports(t, actor)],
           ['agencyReviews', agencyReviews(t, actor, { places: echoPlaces }).catch((e: unknown) => (e as { code?: string }).code === 'forbidden' ? null : Promise.reject(e))],
           ['listNeedsOwner', listNeedsOwner(t, actor)],
           ['search_notes_and_emails', runAssistantTool(ctx, 'search_notes_and_emails', { query: 'isolation pool note' })],
           ['search_notes_and_emails (embeddings)', runAssistantTool({ ...ctx, search: { embedder: fakeEmbedder().embedder } }, 'search_notes_and_emails', { query: 'isolation pool note' })],
           ['offboardingPreview(B)', offboardingPreview(t, actor, B.f.people.a1)],
+          ['quick export contacts', exportedIds(t, actor, 'contacts')],
+          ['quick export listings', exportedIds(t, actor, 'listings')],
+          ['quick export leads', exportedIds(t, actor, 'leads')],
+          ['quick export appointments', exportedIds(t, actor, 'appointments')],
+          ['quick export deals', exportedIds(t, actor, 'deals')],
+          ['quick export notes', exportedIds(t, actor, 'notes')],
         ];
         // Handlers attached the moment each read starts: a refusal must never be an unhandled rejection.
         const settled = lists.map(([name, p]) => [name, tolerate(p)] as const);
@@ -10382,6 +10443,90 @@ async function main() {
         assert(!(await listAssistantConversations(t, B.f.actor(role === 'viewer' ? 'viewer' : role))).some((c) => c.id === A.ids.conversation), `B ${role} lists A's conversation`);
       }
       return 'agency caps per agency; conversations and cards stay in their agency';
+    }),
+  );
+
+  group('Data export (ADR 0104)');
+
+  /**
+   * The full export end to end on real SQL, with storage in memory: each member's zip holds what their screens
+   * hold and their files only; the team is the owner's alone; the bell and the audit row are written; nobody
+   * else's export can be signed; and 24 hours later every file is gone.
+   */
+  await check('a full export builds step by step, holds each member’s own rows and files, and is gone after 24 hours', () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const [lst] = await t.execute<{ id: string }>(sql`select id from listing where agency_id = ${f.agencyId} limit 1`);
+      const photoKey = `listing/${lst!.id}/front.jpg`;
+      const [photo] = await t.execute<{ id: string }>(sql`insert into media (listing_id, kind, storage_key) values (${lst!.id}, 'photo', ${photoKey}) returning id`);
+      const docKey = `agency/${f.agencyId}/contract.pdf`;
+      const [doc] = await t.execute<{ id: string }>(sql`
+        insert into document (agency_id, contact_id, title, storage_key, mime_type, size_bytes, uploaded_by)
+        values (${f.agencyId}, ${f.contacts.p1}, 'Contract', ${docKey}, 'application/pdf', 5, ${f.people.owner}) returning id`);
+      const store = new Map<string, Uint8Array>([[docKey, strToU8('%PDF-')]]);
+      const deps: ExportDeps = {
+        put: async (k, b) => void store.set(k, b),
+        get: async (k) => {
+          const b = store.get(k);
+          if (!b) throw new Error(`nothing at ${k}`);
+          return b;
+        },
+        photo: async () => strToU8('JPEG'),
+        remove: async (k) => store.delete(k),
+        now: () => new Date(),
+      };
+      const handler = exportJobHandler(deps);
+      const build = async (who: 'owner' | 'a1' | 'a2') => {
+        const actor = f.actor(who);
+        const asked = await requestFullExport(t, actor);
+        let steps = 0;
+        for (; steps < 40; steps += 1) {
+          const [row] = await t.execute<{ status: string }>(sql`select status from export_job where id = ${asked.id}`);
+          if (row!.status !== 'queued' && row!.status !== 'building') break;
+          await handler(t, { id: randomUUID(), payload: { exportId: asked.id }, attempts: 1, maxAttempts: 3 } as JobRow);
+        }
+        const [mine] = await listMyExports(t, actor);
+        assert(mine?.id === asked.id && mine.status === 'ready', `${who}: ${mine?.status} after ${steps} steps (${mine?.error ?? ''})`);
+        const [row] = await t.execute<{ parts: { key: string; name: string }[] }>(sql`select parts from export_job where id = ${asked.id}`);
+        const part = (name: string) => row!.parts.find((p) => p.name === name);
+        const data = unzipSync(store.get(part('data.zip')!.key)!);
+        const ids = (file: string) => {
+          const text = data[file] ? strFromU8(data[file]!).slice(1) : '';
+          const lines = text.split('\r\n').filter(Boolean);
+          if (lines.length < 2) return [];
+          const { headers, rows } = parseExportCsv(text);
+          return rows.map((r) => r[headers.indexOf('id')]!).sort();
+        };
+        return { actor, id: asked.id, steps, names: row!.parts.map((p) => p.name), data, ids, files: (name: string) => (part(name) ? Object.keys(unzipSync(store.get(part(name)!.key)!)) : []) };
+      };
+      const a1 = await build('a1');
+      const a2 = await build('a2');
+      const owner = await build('owner');
+      for (const e of [a1, a2, owner]) {
+        const screen = (await listContacts(t, e.actor, { archived: 'all' })).rows.map((r) => r.id).sort();
+        assert(JSON.stringify(e.ids('customers.csv')) === JSON.stringify(screen), `customers.csv for ${e.actor.userId}: ${e.ids('customers.csv').length} vs ${screen.length}`);
+        assert(Boolean(e.data['README.txt']), 'README.txt is in data.zip');
+      }
+      assert(!a1.data['team.csv'] && !a2.data['team.csv'] && Boolean(owner.data['team.csv']), 'team.csv is the owner’s alone');
+      assert(a1.files('photos-1.zip').some((p) => p.endsWith(`${photo!.id}.jpg`)), `A1's photos: ${a1.names.join(', ')}`);
+      assert(a1.files('documents-1.zip').some((p) => p.startsWith(`documents/${doc!.id}`)), `A1's documents: ${a1.names.join(', ')}`);
+      assert(JSON.stringify(a2.names) === JSON.stringify(['data.zip']), `A2 (no listing, never P1) got ${a2.names.join(', ')}`);
+      assert(owner.ids('photos.csv').includes(photo!.id) && owner.ids('documents.csv').includes(doc!.id), 'the owner’s indexes name the photo and the document');
+      assert(!store.has(`exports/${f.agencyId}/${a1.id}/csv/customers.csv`), 'the loose CSVs are deleted once packed');
+
+      const refused = await signExportPart(t, a1.actor, owner.id, 'data.zip').then(() => false, () => true);
+      assert(refused, 'A1 signed the owner’s export');
+      const [told] = await t.execute<{ n: number }>(sql`select count(*)::int as n from notification where agency_id = ${f.agencyId} and kind = 'data_export_ready'`);
+      assert(told?.n === 3, `bells: ${told?.n}`);
+      const [log] = await t.execute<{ n: number }>(sql`
+        select count(*)::int as n from audit_log where agency_id = ${f.agencyId} and action = 'data_exported'
+          and detail->>'dataset' = 'all' and (detail->>'complete')::boolean and ref_id is not null`);
+      assert(log?.n === 3, `audit rows counted: ${log?.n}`);
+
+      const swept = await expireExports(t, { remove: deps.remove, now: () => new Date(Date.now() + 25 * 3_600_000) });
+      const left = [...store.keys()].filter((k) => k.startsWith('exports/'));
+      assert(swept.expired >= 3 && left.length === 0, `after 24 hours: ${swept.expired} expired, ${left.length} files left`);
+      return `A1 ${a1.names.join('+')} in ${a1.steps} steps, A2 ${a2.names.join('+')}, owner ${owner.names.join('+')}; team owner-only; 3 bells, 3 audit rows; all files deleted at 24 h`;
     }),
   );
 
@@ -11343,13 +11488,17 @@ async function main() {
       const v = cells[h] ?? '';
       return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
     }).join(',');
-  /** No network: a pin per address, "NOWHERE" not found; photo links fetched and attached in memory. */
+  /**
+   * No network: a pin per address, "NOWHERE" not found, and a "NEARBY" street answered as Google answers a
+   * number it does not know: the nearest one it does ("14" → "214"). Photo links fetched and attached in memory.
+   */
   function importDeps(attached: { listingId: string; key: string }[] = []): ImportDeps {
     return {
-      geocode: (async (_db: unknown, p: { street?: string | null; streetNumber?: string | null; suburb: string }) => {
+      geocode: (async (_db: unknown, p: { street?: string | null; streetNumber?: string | null; suburb: string; postcode: string }) => {
         if ((p.street ?? '').includes('NOWHERE')) return null;
         const h = [...`${p.streetNumber} ${p.street} ${p.suburb}`].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 100000, 7);
-        return { latitude: -38 + h / 1e6, longitude: 145 + h / 1e6, placeId: `fake-${h}`, formatted: `${p.streetNumber} ${p.street}, ${p.suburb}`, kind: 'address' };
+        const streetNumber = (p.street ?? '').includes('NEARBY') ? `2${p.streetNumber}` : (p.streetNumber ?? null);
+        return { latitude: -38 + h / 1e6, longitude: 145 + h / 1e6, placeId: `fake-${h}`, formatted: `${streetNumber} ${p.street}, ${p.suburb}`, kind: 'address', streetNumber, street: p.street ?? null, suburb: p.suburb, postcode: p.postcode };
       }) as never,
       photos: {
         fetchImage: async (url) => {
@@ -11407,6 +11556,20 @@ async function main() {
       assert(/active listings/.test(msg(9)) && /row 2/.test(msg(10)), `duplicates: ${msg(9)} / ${msg(10)}`);
       assert((await listingCount(t, x.f.agencyId)) === before, 'the dry run wrote listings');
       return '4 valid, 4 errors (price, headline, date, address), 2 duplicates (active listing, same as row 2); 0 listings written';
+    }),
+  );
+
+  await check('dry run: an address Google answers with a nearby one (another number) is an error, never that pin', async () =>
+    inRollback(async (t) => {
+      const f = await contactFixture(t);
+      const owner = f.actor('owner');
+      const text = [IMPORT_HEADER, csvRow({ street_number: '14', street: 'NEARBY Henry Street', suburb: 'Pakenham', state: 'VIC', postcode: '3810', channel: 'sale', status: 'live', headline: 'x', price_display: 'Contact agent' })].join('\n');
+      const { id } = await createImport(t, owner, { fileName: 'nearby.csv', text });
+      await startDryRun(t, owner, id);
+      await driveImport(t, owner, id, importDeps(), ['validated']);
+      const [row] = await importReport(t, owner, id);
+      assert(row?.status === 'error' && /Google found “214 NEARBY Henry Street, Pakenham”, not this address/.test(JSON.stringify(row.errors)), `nearby: ${JSON.stringify(row)}`);
+      return 'row is an error naming what Google found; no pin kept';
     }),
   );
 

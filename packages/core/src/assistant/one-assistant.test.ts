@@ -18,7 +18,7 @@ describe('the AI Assistant on Overview', () => {
     for (const t of ['add_note', 'set_lead_status', 'schedule_appointment', 'create_contact', 'update_contact', 'create_reminder', 'update_agent', 'remove_agent', 'invite_agent', 'find_agents', 'open_chat']) expect(general, t).toContain(t);
   });
 
-  it('builds and manages workflows itself, email and text steps in one (ADR 0104, the user 2026-11-27)', () => {
+  it('builds and manages workflows itself, email and text steps in one (ADR 0105, the user 2026-11-27)', () => {
     for (const t of ['create_workflow', 'change_workflow', 'find_workflows', 'list_templates']) expect(general, t).toContain(t);
     expect(CHAT_SCOPE_RULES.general.refusedWorkflowSteps).toBeUndefined();
   });

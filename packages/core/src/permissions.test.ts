@@ -1227,3 +1227,17 @@ describe('deal commission', () => {
     expect(can({ ...m('o', 'owner'), via: 'platform' }, 'deal:commission', res)).toBe(false);
   });
 });
+
+/** ADR 0104: every member may download what they can see; the rows are narrowed by `*:read_all`, not here. */
+describe('data export', () => {
+  const m = (membershipRole: Actor['membershipRole']): Actor => ({ userId: 'u', agencyId: agencyA, membershipRole });
+  const res = { type: 'agency', agencyId: agencyA };
+  it('is every member of the agency, and only theirs', () => {
+    for (const role of ['owner', 'admin', 'agent', 'assistant', 'property_manager', 'read_only'] as const) expect(can(m(role), 'data:export', res)).toBe(true);
+    expect(can({ userId: 'u', agencyId: agencyA }, 'data:export', res)).toBe(false);
+    expect(can({ userId: 'r', agencyId: agencyB, membershipRole: 'owner' }, 'data:export', res)).toBe(false);
+  });
+  it('is never a platform view: a platform admin does not bulk-download an agency', () => {
+    expect(can({ ...m('owner'), via: 'platform' }, 'data:export', res)).toBe(false);
+  });
+});

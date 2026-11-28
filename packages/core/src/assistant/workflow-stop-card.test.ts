@@ -4,7 +4,7 @@ import type { Actor } from '../permissions';
 import { changeWorkflowInput } from './schema';
 import { runWorkflowAction, verifyWorkflowAction } from './workflow-tools';
 
-/** ADR 0105: the chat's "stop" pauses the workflow AND ends its runs in flight; "pause" only stops new runs. */
+/** ADR 0106: the chat's "stop" pauses the workflow AND ends its runs in flight; "pause" only stops new runs. */
 
 const setWorkflowStatus = vi.hoisted(() => vi.fn(async () => undefined));
 const stopWorkflowRuns = vi.hoisted(() => vi.fn(async () => ({ stopped: 2 })));

@@ -1,4 +1,4 @@
-# 0105 — Workflows of up to 12 steps, and stopping a run in flight
+# 0106 — Workflows of up to 12 steps, and stopping a run in flight
 
 **Status:** accepted, 2026-11-27 (the user, after the 12-step audit). Amends ADR 0041 (limits) and ADR 0088's top-bar Stop. No migration.
 

@@ -1,6 +1,6 @@
 import { CHAT_SCOPE_LABELS, OPEN_CHAT_SCOPES, type ChatScope } from '@repo/core/assistant/chat-scopes';
 
-/** v2 (ADR 0104): Overview's AI Assistant builds and manages workflows itself, email and text steps in one. */
+/** v2 (ADR 0105): Overview's AI Assistant builds and manages workflows itself, email and text steps in one. */
 export const CHAT_SCOPE_PROMPT_VERSION = 'chat-scope@v2';
 
 const PURPOSE: Readonly<Record<ChatScope, string>> = Object.freeze({

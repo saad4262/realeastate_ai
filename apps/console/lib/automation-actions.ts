@@ -41,7 +41,7 @@ export async function stopTaskAction(taskId: string): Promise<R> {
   }
 }
 
-/** ADR 0105: stop one workflow run still going; the workflow stays on for the next lead. */
+/** ADR 0106: stop one workflow run still going; the workflow stays on for the next lead. */
 export async function stopWorkflowRunAction(runId: string): Promise<R> {
   try {
     await stopWorkflowRun(getConsoleDb(), await actor(), String(runId));

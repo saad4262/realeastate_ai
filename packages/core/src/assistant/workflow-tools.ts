@@ -270,7 +270,7 @@ export async function findWorkflows(ctx: ToolContext, label: string): Promise<To
         then: w.words.then,
         ...(w.words.onReply ? { if_they_reply: w.words.onReply } : {}),
         runs_today: w.runsToday,
-        // ADR 0104: how the latest run went, so the AI Assistant can answer "how are my automations doing?".
+        // ADR 0105: how the latest run went, so the AI Assistant can answer "how are my automations doing?".
         last_run: w.lastRun ? `${new Intl.DateTimeFormat('en-AU', { timeZone: ctx.timeZone, dateStyle: 'medium', timeStyle: 'short' }).format(w.lastRun.at)}: ${w.lastRun.words}` : 'never ran',
         ...(w.mayManage ? {} : { you_may_change_it: false }),
       })),
@@ -286,7 +286,7 @@ export async function proposeChangeWorkflow(ctx: ToolContext, input: z.infer<typ
   if (!w.mayManage) return refused('Only its owner or an owner/admin can change this workflow. Nothing was proposed.', label);
   if (!workflowFitsChat(ctx.chatScope ?? null, w.stepTypes)) return refused(OTHER_CHANNEL, label);
   const now = w.status === 'paused' ? 'Paused' : 'On';
-  // ADR 0105: "stop" also ends the runs already going, so it is never "already done" while one is.
+  // ADR 0106: "stop" also ends the runs already going, so it is never "already done" while one is.
   const going = input.change === 'stop' || input.change === 'pause' ? await countRunsInFlight(ctx.db, id) : 0;
   if ((input.change === 'pause' && w.status === 'paused') || (input.change === 'resume' && w.status === 'active') || (input.change === 'stop' && w.status === 'paused' && !going)) {
     return { label, result: { proposed: false, tell_the_user: `“${w.name}” is already ${w.status === 'paused' ? 'paused' : 'on'}${input.change === 'stop' ? ', and nothing of it is running' : ''}.` } };
@@ -333,7 +333,7 @@ export async function runWorkflowAction(
       return { result: { workflowId: id } };
     }
     await setWorkflowStatus(tx, actor, args.workflowId, args.change === 'pause' || args.change === 'stop' ? 'paused' : args.change === 'resume' ? 'active' : 'archived');
-    // ADR 0105: and every run still going ends, in this same transaction.
+    // ADR 0106: and every run still going ends, in this same transaction.
     if (args.change === 'stop') return { result: { workflowId: args.workflowId, ...(await stopWorkflowRuns(tx, actor, args.workflowId)) } };
     return { result: { workflowId: args.workflowId } };
   } catch (err) {

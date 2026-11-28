@@ -65,7 +65,7 @@ describe('automationDetail', () => {
     expect(d.runs[0]).toMatchObject({ total: 3, sent: 1, failed: 1, remaining: 1 });
   });
 
-  it('a workflow run still going has Stop for who may manage it, a finished one none (ADR 0105)', async () => {
+  it('a workflow run still going has Stop for who may manage it, a finished one none (ADR 0106)', async () => {
     const runs = [
       { id: 'going', at: new Date(), status: 'started', error: null, decision: null, steps: [{ status: 'done', error: null }, { status: 'scheduled', error: null }] },
       { id: 'over', at: new Date(), status: 'started', error: null, decision: null, steps: [{ status: 'done', error: null }, { status: 'cancelled', error: null }] },

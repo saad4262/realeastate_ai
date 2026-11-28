@@ -24,7 +24,7 @@ describe('the registry', () => {
     }
   });
 
-  it('Overview’s AI Assistant does no skill’s job but workflows (ADR 0104)', () => {
+  it('Overview’s AI Assistant does no skill’s job but workflows (ADR 0105)', () => {
     const skillTools = ['email', 'sms', 'listing_copy', 'dashboards', 'ai_skills'].flatMap((x) => CHAT_SCOPE_RULES[x as ChatScope].tools as readonly string[]).filter((t) => WRITES.includes(t));
     expect(CHAT_SCOPE_RULES.general.tools.filter((t) => skillTools.includes(t)).sort()).toEqual(['change_workflow', 'create_workflow']);
   });
@@ -40,7 +40,7 @@ describe('the registry', () => {
     }
   });
 
-  it('Overview and the two automations chats build workflows; each automations chat refuses the other channel, Overview neither (ADR 0104)', () => {
+  it('Overview and the two automations chats build workflows; each automations chat refuses the other channel, Overview neither (ADR 0105)', () => {
     expect(holders('create_workflow').sort()).toEqual(['email', 'general', 'sms']);
     expect(holders('change_workflow').sort()).toEqual(['email', 'general', 'sms']);
     expect(chatScopeRefusal('general', 'create_workflow', { actions: [{ type: 'send_template_email' }, { type: 'wait' }, { type: 'send_template_sms' }] })).toBeNull();
@@ -262,7 +262,7 @@ describe('runAssistantTool in a chat', () => {
     expect(reached).not.toContain('switched off');
   });
 
-  it('a workflow needs each of its steps’ switches on, in Overview too (ADR 0104)', async () => {
+  it('a workflow needs each of its steps’ switches on, in Overview too (ADR 0105)', async () => {
     const wf = (type: string) => ({ name: 'W', trigger: { kind: 'lead.created' }, actions: [{ type: 'remind_owner', text: 'x' }, { type, template: 'T1' }] });
     const emailsOff = { skillsOff: async () => new Set(['workflow_emails'] as const) };
     expect(JSON.stringify((await runAssistantTool({ ...ctx('general'), ...emailsOff }, 'create_workflow', wf('send_template_email'))).result)).toContain('switched off');

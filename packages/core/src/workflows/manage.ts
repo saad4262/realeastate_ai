@@ -163,7 +163,7 @@ export async function setWorkflowStatus(db: DbOrTx, actor: Actor, id: string, st
   await db.update(workflow).set({ status, pausedReason: null, updatedAt: sql`now()` }).where(eq(workflow.id, w.id));
 }
 
-/** What a run stopped from the chat or the Automations panel says (ADR 0105). */
+/** What a run stopped from the chat or the Automations panel says (ADR 0106). */
 export const STOPPED_BY_HAND = 'Stopped by hand, so nothing more of this run was sent.';
 
 /** The tasks of this workflow's runs that are still going. A subquery: no ids pass through the app. */
@@ -199,7 +199,7 @@ export async function countRunsInFlight(db: DbOrTx, workflowId: string): Promise
 }
 
 /**
- * ADR 0105: every run of this workflow still going is stopped — what has gone stays gone, nothing more is
+ * ADR 0106: every run of this workflow still going is stopped — what has gone stays gone, nothing more is
  * sent. Its owner or an owner/admin (`workflow:manage`, the rule for pausing it). Takes the caller's
  * transaction; the workflow itself is not paused here (the chat's "stop" pauses it as well).
  */
@@ -210,7 +210,7 @@ export async function stopWorkflowRuns(db: DbOrTx, actor: Actor, workflowId: str
   return { stopped: await stopTasks(db, ids, now) };
 }
 
-/** ADR 0105: one run still going, stopped — the Automations panel's Stop. Same rule as stopping them all. */
+/** ADR 0106: one run still going, stopped — the Automations panel's Stop. Same rule as stopping them all. */
 export async function stopWorkflowRun(db: Db, actor: Actor, runId: string, now = new Date()): Promise<{ stopped: number }> {
   if (!actor.agencyId || !UUID.test(runId)) throw NOT_FOUND();
   const [run] = await db.select({ workflowId: workflowRun.workflowId, taskId: workflowRun.taskId }).from(workflowRun).where(and(eq(workflowRun.id, runId), eq(workflowRun.agencyId, actor.agencyId))).limit(1);
@@ -260,14 +260,14 @@ export type WorkflowSummary = {
   triggerKind: TriggerKind | null;
   decides: boolean;
   runsToday: number;
-  /** ADR 0104: how its latest run went, for the AI Assistant to report; null when it never ran. */
+  /** ADR 0105: how its latest run went, for the AI Assistant to report; null when it never ran. */
   lastRun: { at: Date; words: string } | null;
   mayManage: boolean;
 };
 
 type LastRunRow = { at: string; run: string; error: string | null; task: string | null; why: string | null };
 
-/** ADR 0104: a run's state in words, from the run and its task — never a count the model could get wrong. */
+/** ADR 0105: a run's state in words, from the run and its task — never a count the model could get wrong. */
 export function lastRunWords(r: Omit<LastRunRow, 'at'>): string {
   if (r.run === 'skipped' || r.run === 'failed') return `${r.run === 'skipped' ? 'did not run' : 'failed'}${r.error ? `: ${r.error}` : ''}`;
   switch (r.task) {

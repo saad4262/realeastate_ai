@@ -1,6 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { property, type Db, type DbOrTx } from '@repo/db';
-import { geocodeAddress } from '../geo/places';
+import { geocodeAddress, sameAddress } from '../geo/places';
 import { ListingError, formatAddress, type PropertyDraft } from './listing-schema';
 import { addressKey } from './address-key';
 
@@ -96,6 +96,8 @@ export async function resolvePin(db: Db, p: PropertyDraft): Promise<ResolvedPin>
     // centroid of New South Wales, which would drop a pin 400 km inland and
     // put the listing into radius searches it has no business being in.
     if (hit.kind !== 'address') return null;
+    // Google's nearest guess at an address it does not know is another house: no pin rather than the wrong one.
+    if (!sameAddress(p, hit)) return null;
     return {
       latitude: hit.latitude.toFixed(6),
       longitude: hit.longitude.toFixed(6),

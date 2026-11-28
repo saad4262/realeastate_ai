@@ -61,7 +61,7 @@ describe('stop_on_reply in the spec', () => {
   });
 });
 
-describe('lastRunWords (ADR 0104: what the AI Assistant reports)', () => {
+describe('lastRunWords (ADR 0105: what the AI Assistant reports)', () => {
   const r = (run: string, task: string | null, why: string | null = null, error: string | null = null) => lastRunWords({ run, task, why, error });
   it('says how the latest run went, with the reason it carries', () => {
     expect(r('started', 'active')).toBe('running now');

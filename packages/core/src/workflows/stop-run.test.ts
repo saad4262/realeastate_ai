@@ -5,7 +5,7 @@ import { createWorkflowInput } from '../assistant/schema';
 import { specProblem, WORKFLOW_LIMITS, workflowSpecSchema } from './catalog';
 import { stopWorkflowRun, stopWorkflowRuns, WorkflowError } from './manage';
 
-/** ADR 0105: workflows of up to 12 steps, and stopping a run in flight — its owner or an owner/admin only. */
+/** ADR 0106: workflows of up to 12 steps, and stopping a run in flight — its owner or an owner/admin only. */
 
 const A = '11111111-1111-4111-8111-111111111111';
 const U1 = '22222222-2222-4222-8222-222222222222';
@@ -19,7 +19,7 @@ const T = '88888888-8888-4888-8888-888888888888';
 const agent = (userId: string): Actor => ({ userId, agencyId: A, membershipRole: 'agent' });
 const owner: Actor = { userId: BOSS, agencyId: A, membershipRole: 'owner' };
 
-describe('12 steps (ADR 0105)', () => {
+describe('12 steps (ADR 0106)', () => {
   const remind = { type: 'remind_owner', text: 'x' };
   it('the model’s input takes up to 12 steps, in the workflow and in each AI choice, and refuses 13', () => {
     const input = (actions: unknown[], decide?: unknown) => createWorkflowInput.safeParse({ name: 'W', trigger: { kind: 'lead.created' }, actions, ...(decide ? { decide } : {}) }).success;
@@ -65,7 +65,7 @@ function fakeDb(selects: unknown[][], ended: unknown[] = [{ id: TASK }]) {
 const run = { workflowId: WF, taskId: TASK };
 const wf = (ownerId: string, scope: 'mine' | 'agency' = 'mine') => ({ id: WF, agencyId: A, ownerId, scope, status: 'active' });
 
-describe('stopWorkflowRun: who may stop a run (ADR 0105)', () => {
+describe('stopWorkflowRun: who may stop a run (ADR 0106)', () => {
   it('its owner stops their own workflow’s run', async () => {
     const { db, transaction } = fakeDb([[run], [wf(U1)]]);
     expect(await stopWorkflowRun(db, agent(U1), RUN)).toEqual({ stopped: 1 });
@@ -108,7 +108,7 @@ describe('stopWorkflowRun: who may stop a run (ADR 0105)', () => {
   });
 });
 
-describe('stopWorkflowRuns: the chat’s stop, same rule (ADR 0105)', () => {
+describe('stopWorkflowRuns: the chat’s stop, same rule (ADR 0106)', () => {
   it('a read-only member, or a colleague, may not; nothing is read past the workflow', async () => {
     await expect(stopWorkflowRuns(fakeDb([[wf(U1)]]).db, { userId: U1, agencyId: A, membershipRole: 'read_only' }, WF)).rejects.toMatchObject({ code: 'forbidden' });
     await expect(stopWorkflowRuns(fakeDb([[wf(U1)]]).db, agent(U2), WF)).rejects.toBeInstanceOf(WorkflowError);

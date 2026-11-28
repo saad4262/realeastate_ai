@@ -409,7 +409,7 @@ export const createTemplateInput = z
     body: z.string().trim().min(1).max(8000),
   })
   .strict();
-/** ADR 0105: `stop` pauses it AND stops every run in flight; `pause` only stops new runs. */
+/** ADR 0106: `stop` pauses it AND stops every run in flight; `pause` only stops new runs. */
 export const changeWorkflowInput = z.object({ workflow: workflowHandleSchema, change: z.enum(['pause', 'stop', 'resume', 'archive']) }).strict();
 export const setUpSkillInput = z.object({ skill: skillHandleSchema, schedule: skillScheduleInput.optional(), mail_me: z.boolean().optional() }).strict();
 /** One of the person's own skills: only what is named changes. `instructions` is the whole new text under the front-matter. */

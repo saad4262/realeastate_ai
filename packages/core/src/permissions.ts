@@ -207,6 +207,11 @@ export type Action =
   | 'contact_summary:write'
   /** See who looked at listings (ADR 0083). Any member; which listings is narrowed by `listing:read_all`. */
   | 'listing_activity:read'
+  /**
+   * Download the agency's data as CSV (ADR 0104): any member, and what they get is what their screens show them
+   * (an agent's own book, an admin's whole agency). Not in PLATFORM_READ: a platform view never bulk-downloads.
+   */
+  | 'data:export'
   /** Edit or delete a note: its author (`ownerId`), or an admin. */
   | 'note:manage'
   /**
@@ -786,6 +791,7 @@ export function can(actor: Actor, action: Action, resource: Resource): boolean {
       return mayWrite(actor) && can(actor, 'contact:read', resource);
 
     case 'listing_activity:read':
+    case 'data:export':
       return sameAgency(actor, resource) && Boolean(actor.membershipRole);
 
     case 'document:upload_listing':

@@ -780,6 +780,7 @@ Download the template**) and make a copy to edit. In a spreadsheet, save as **CS
 | Y23 | A row with photo links in the CSV, and a folder for the same address | The links are used. The folder is listed under "has links in the file". |
 | Y24 | After the import, filter **Listings without photos**, and download the row report | Only listings with no photo or a failed one. The CSV has photos from / in / waiting / failed for every listing. |
 | Y25 | Time the upload of 500 photos on a home connection | Note the time. 1,000 listings × 20 photos ≈ 40 × that. |
+| Y26 | A row with a real street but a house number that does not exist there (e.g. `914 Henry Street, Pakenham`), and one with the right street in the wrong suburb | Each is a problem row: "Google found “…”, not this address — check the street number, street and suburb". Neither is imported with Google's pin. |
 
 ## Z — Google reviews, step 1 (ADR 0028)
 
@@ -2482,40 +2483,68 @@ Mock: `docs/mocks/home-search.html`. Public site, signed out unless said.
 | CZ18 | Phone width (375 px) | Tabs scroll sideways; Filters and Search share a row under the box; no page scroll sideways |
 | CZ19 | An old link `/search?suburb=Pakenham&radius=10` and an old alert | Same results as before this change |
 
-## DA — A workflow stops when the person replies (ADR 0103)
+## DA — Agency data export, quick CSV (ADR 0104, phase 1)
+
+| # | Do | Expect |
+|---|---|---|
+| DA1 | Agency console → Customers → Export CSV | `customers-YYYY-MM-DD.csv` downloads; opened in Excel, names with accents read right; row count = the directory's total |
+| DA2 | Filter Customers (role Buyer, "Current and archived"), then Export CSV | Only those rows; archived ones show `yes` in `archived` |
+| DA3 | Agent console → My contacts → Export CSV | Only the agent's own contacts (the same as the screen), never another agent's or an offer-only person |
+| DA4 | Agency console → Listings → Export CSV; agent console → My Listings → Export CSV | Owner: every listing, drafts included. Agent: only listings they are named on |
+| DA5 | Import the listings file back (Listings → Import from CSV, as draft) into a test agency | Mapping fills itself; dry run has no errors; photos, video link and open homes come across |
+| DA6 | A customer named `=1+1` | The cell reads `'=1+1` in Excel, never `2` |
+| DA7 | As owner, Settings → Audit log after DA1–DA4 | One "Downloaded … as CSV (N rows)" line per download, with who and when |
+| DA8 | Platform admin → an agency's customers | No Export button; `/api/exports/contacts` from the admin session never gives a CSV (admin host → /platform; agency host → sign in) |
+| DA9 | Leads → Offers tab → Export CSV (owner), then as an agent | Owner: the offers with amounts. Agent: no Offers tab, and no offer in any export |
+| DA10 | Calendar → Export CSV | Past and upcoming; times on the appointment's own clock |
+| DA11 | Pipeline → Export CSV, then "Only mine" → Export CSV | Every deal incl. settled; the second only the owner's own |
+| DA12 | As an agent, Customers → Export notes | Their visible customers' notes; another member's private note never appears |
+| DA13 | Owner: Settings → Download your data → Prepare my data | Row "Waiting to start", button disabled; when built, "Ready" and "Kept until …"; within a few minutes (cron) "Ready", with data.zip and photos-N / documents-N parts; a bell and an email "Your data export is ready" |
+| DA14 | Open data.zip | README.txt, customers.csv … emails.csv, team.csv; photos.csv names files found in photos-1.zip |
+| DA15 | Agent: sidebar Settings → My data → Prepare my data | Only their own customers, listings, texts and files; no team.csv |
+| DA16 | Copy an owner's part link, open it signed in as an agent | 404 "That download was not found" |
+| DA17 | Prepare 6 times in one day | The sixth says "You can prepare 5 exports a day" |
+| DA18 | 24 hours later | Status "Deleted", no links; the files are gone from storage (exports/<agency>/<id>/) |
+
+Automated: `packages/e2e/tests/data-export.spec.ts` runs DA1–DA18 on dev (real Storage; one email to Resend's test inbox).
+2026-11-26: 8/8 passed against the console's production build (`next start`), not the dev server (its first-visit compile
+reloads pages and cancels downloads). Run: console on :3001, then from packages/e2e
+`node --env-file=../../.env.local node_modules/@playwright/test/cli.js test data-export`.
+
+## DB — A workflow stops when the person replies (ADR 0103)
 
 Console, as an agent with "Workflow emails" on. The engine side is in smoke ("Workflows: stop on reply").
 
 | # | Do | Expect |
 |---|---|---|
-| DA1 | Email Assistant: "When a lead comes in, send the Welcome template, wait 1 hour, then remind me to call" | The card has a line "If they reply: If they email or text back, every step still to come stops" |
-| DA2 | Same, adding "and carry on even if they reply" | The line reads "It carries on even if they email or text back" |
-| DA3 | Approve DA1; record a lead by hand; reply to the welcome email from the lead's inbox within the hour | No reminder rings; Automations → the workflow → the run shows the second step skipped, "Stopped: they emailed or texted back…", nothing remaining |
-| DA4 | A workflow on "a listing's status changes" | The card has no "If they reply" line |
+| DB1 | Email Assistant: "When a lead comes in, send the Welcome template, wait 1 hour, then remind me to call" | The card has a line "If they reply: If they email or text back, every step still to come stops" |
+| DB2 | Same, adding "and carry on even if they reply" | The line reads "It carries on even if they email or text back" |
+| DB3 | Approve DB1; record a lead by hand; reply to the welcome email from the lead's inbox within the hour | No reminder rings; Automations → the workflow → the run shows the second step skipped, "Stopped: they emailed or texted back…", nothing remaining |
+| DB4 | A workflow on "a listing's status changes" | The card has no "If they reply" line |
 
-## DB — The AI Assistant builds and runs workflows (ADR 0104)
+## DC — The AI Assistant builds and runs workflows (ADR 0105)
 
 Console Overview (`/overview` or the agent's `/assistant`), "Workflow emails" and "Workflow texts" on, an email and an SMS template saved.
 
 | # | Do | Expect |
 |---|---|---|
-| DB1 | "When a new lead comes in, email them the Welcome template, then text them the Hi template 2 hours later" | One card in this chat: When / Then 1 email / Then 2 wait 2 hours / Then 3 text / If they reply; no "open the Email chat" button |
-| DB2 | Approve DB1 | Saved and on; Skills → Automations lists it |
-| DB3 | "How are my automations doing?" | Each workflow with its state and latest run in words ("never ran", "stopped: …"), no made-up counts |
-| DB4 | "Pause the new-lead one", then "turn it back on" | A card each; after Approve, Automations shows it paused, then on |
-| DB5 | Switch "Workflow texts" off for yourself, repeat DB1 | Refused: the skill is switched off; nothing proposed |
-| DB6 | "Email my buyers list now" | A button to the Email chat (a send now is still that chat's) |
-| DB7 | Email chat: ask for a workflow that also texts | Refused there, as before |
+| DC1 | "When a new lead comes in, email them the Welcome template, then text them the Hi template 2 hours later" | One card in this chat: When / Then 1 email / Then 2 wait 2 hours / Then 3 text / If they reply; no "open the Email chat" button |
+| DC2 | Approve DC1 | Saved and on; Skills → Automations lists it |
+| DC3 | "How are my automations doing?" | Each workflow with its state and latest run in words ("never ran", "stopped: …"), no made-up counts |
+| DC4 | "Pause the new-lead one", then "turn it back on" | A card each; after Approve, Automations shows it paused, then on |
+| DC5 | Switch "Workflow texts" off for yourself, repeat DC1 | Refused: the skill is switched off; nothing proposed |
+| DC6 | "Email my buyers list now" | A button to the Email chat (a send now is still that chat's) |
+| DC7 | Email chat: ask for a workflow that also texts | Refused there, as before |
 
-## DC — Workflows of up to 12 steps, and Stop on a run in flight (ADR 0105)
+## DD — Workflows of up to 12 steps, and Stop on a run in flight (ADR 0106)
 
 Console, as an agency owner, "Workflow emails" and "Workflow texts" on. The engine side is in smoke ("Workflows: stop a run, 12 steps").
 
 | # | Do | Expect |
 |---|---|---|
-| DC1 | AI Assistant: the 11-step new-lead prompt (assign to a named agent, message them, set Contacted, email, wait 2 h, text, wait 1 day, next action "Call", email, wait 3 days, remind me) | One card, Then 1 … Then 11; Approve saves it |
-| DC2 | Same with 13 steps | No card for 13: the assistant says the most is 12 and offers to shorten it |
-| DC3 | Record a lead by hand so DC1 runs; Skills → Automations → the workflow | The run in History has **Stop**; Stop → confirm → the run shows the rest skipped, "Stopped by hand…" |
-| DC4 | As an agent, open an owner's agency-wide workflow in the panel | No Stop on its runs |
-| DC5 | Two leads running DC1; in the AI Assistant: "stop the new-lead automation" | A "Stop the workflow" card: After: Paused; Runs going: 2 … each stops; Approve → both runs stopped, the workflow paused |
-| DC6 | "Pause the new-lead automation" while a run is going | The card says the runs going carry on to the end |
+| DD1 | AI Assistant: the 11-step new-lead prompt (assign to a named agent, message them, set Contacted, email, wait 2 h, text, wait 1 day, next action "Call", email, wait 3 days, remind me) | One card, Then 1 … Then 11; Approve saves it |
+| DD2 | Same with 13 steps | No card for 13: the assistant says the most is 12 and offers to shorten it |
+| DD3 | Record a lead by hand so DD1 runs; Skills → Automations → the workflow | The run in History has **Stop**; Stop → confirm → the run shows the rest skipped, "Stopped by hand…" |
+| DD4 | As an agent, open an owner's agency-wide workflow in the panel | No Stop on its runs |
+| DD5 | Two leads running DD1; in the AI Assistant: "stop the new-lead automation" | A "Stop the workflow" card: After: Paused; Runs going: 2 … each stops; Approve → both runs stopped, the workflow paused |
+| DD6 | "Pause the new-lead automation" while a run is going | The card says the runs going carry on to the end |
