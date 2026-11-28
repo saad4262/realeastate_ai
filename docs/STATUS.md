@@ -8,13 +8,15 @@ are `docs/PLATFORM-PLAN.md` (section 14, with progress). Overwrite this file at 
 V1 production-readiness: about 12% (PLATFORM-PLAN 14). Steps 0–2 nearly done; step 3 (backups) next.
 Branches waiting for a PR and merge: `chore/dev-db-and-prod-guard` (production guard + 0001 extensions fix), `docs/platform-plan` (this).
 
-## Round-robin, tags, Nurture, booking link (ADR 0107) — branch `feat/workflow-round-robin-tags`, NOT merged, 2026-11-28
-Migration **0111** (on DEV only): `lead_status` nurture, `contact.tags`, `user.booking_url`, `workflow.turn`, `tag_contact` in the tool
+## Round-robin, tags, Nurture, booking link (ADR 0107) — LIVE: merge `1b77538` on `main`, 2026-11-28
+On the user's go: backup `prod-20261128T113334Z.dump.enc` (146 tables; 6 agencies, 0110's index present), migration **0111 on
+production** (112 applied; read-only check: nurture before closed, the three columns, the tool CHECK valid with `tag_contact`),
+merge (parents `12dd933` + the branch), pushed. Vercel: admin, agent, agencyy, users Ready (11:46 UTC); the other five (`*-console*`, `realestate-ai-web`) fail on every commit, as before. Live login pages answer 200.
+Migration **0111**: `lead_status` nurture, `contact.tags`, `user.booking_url`, `workflow.turn`, `tag_contact` in the tool
 CHECK. Workflow steps `assign_in_turn` (lead + contact, in turn), `message_assigned_agent`, `tag_contact`; tags by hand, filter,
 export; `{{booking_link}}` (contact's agent's link, else sender's, else skipped); prompt `assistant@v33`. With it the user's
 12-step new-lead prompt is ONE workflow. Checked: typecheck, lint, `pnpm test` (core 2657, AI 466), both builds, smoke ADR 0107
-group 3/3, break-tests red, TEST-PLAN DE1/3/4/5/6/7 in the browser on dev with the live model. **To go live:** backup →
-migration 0111 → merge (the user's go). Then the first live check: a real agency with Twilio, email → wait → text, and a reply.
+group 3/3, break-tests red, TEST-PLAN DE1/3/4/5/6/7 in the browser on dev with the live model. The first live check still to do: a real agency with Twilio, email → wait → text, and a reply.
 
 ## Workflows: stop on reply, run from the AI Assistant, 12 steps, Stop, run panel (ADR 0103, 0105, 0106) — LIVE: merge `e55284a` on `main`, 2026-11-28
 On the user's go: production backup `prod-20261128T092303Z.dump.enc` (146 tables; checked: 6 agencies, export_job present, no new
@@ -82,10 +84,10 @@ the column checked read-only), merge `--no-ff`, pushed; Vercel built all 4 proje
   URLs (`postgres.<ref>@aws-0-ap-southeast-2.pooler.supabase.com`, 6543 and 5432): the direct `db.<ref>` host is IPv6-only and fails
   with ENOTFOUND. 109 migrations (0000–0108), census loaded, buckets `media` (public), `documents`, `inspection-photos`, platform admin
   `admin@test.com`. **No agency yet**, so `pnpm db:seed` waits for a sign-up at `localhost:3001/get-started`.
-- **Production:** ref `xjklpoyxcvnlhjlxasmv`. Its values live only in Vercel (Production) and the password manager. 111 migrations
-  (0110 applied 2026-11-28, after a backup and a dev run). **PITR is off** (PLATFORM-PLAN decision 7).
+- **Production:** ref `xjklpoyxcvnlhjlxasmv`. Its values live only in Vercel (Production) and the password manager. 112 migrations
+  (0111 applied 2026-11-28, after a backup and a dev run). **PITR is off** (PLATFORM-PLAN decision 7).
 - **Backups:** encrypted `pg_dump` with `/Users/saadiii/Job/secure_backups/backup.sh` (key kept apart, full decrypt check). Last:
-  `prod-20261128T092303Z.dump.enc`. The script reads `.env.local` (now DEV): export production's `DIRECT_URL` first. Run it before every production migration until the scheduled dump (0.4) exists.
+  `prod-20261128T113334Z.dump.enc`. The script reads `.env.local` (now DEV): export production's `DIRECT_URL` first. Run it before every production migration until the scheduled dump (0.4) exists.
 - **The other laptop's `.env.local` still points at production.** Switch it to the dev values.
 - Smoke on dev, 2026-11-17: Database & migrations, Database health, Credentials, Tenant isolation (`SMOKE_CHECK_TIMEOUT_S=900`),
   Platform admin, all green.

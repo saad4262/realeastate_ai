@@ -3,6 +3,16 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-28 (evening) — Claude Code (Mac) — ADR 0107 LIVE
+
+- The user's go. `origin/main` unchanged (`12dd933`). Prod read-only first: 111 migrations (last 0110), no nurture, none of the
+  three columns, 50 proposed_action rows, Postgres 17.
+- Backup `prod-20261128T113334Z.dump.enc` (146 tables; decrypted: 6 agencies, 0110's index). `drizzle-kit migrate` with the prod
+  `DIRECT_URL` + `CONFIRM_PRODUCTION` in that command's env only: 0111 alone. Read-only after: 112, `lead_status` new, contacted,
+  qualified, nurture, closed; `contact.tags` / `user.booking_url` / `workflow.turn`; tool CHECK valid with `tag_contact`.
+- Merge `1b77538` by `commit-tree` (tree = the branch's, which held main), main re-checked, pushed.
+- Vercel: admin, agent, agencyy, users Ready (11:46 UTC); the other five (`*-console*`, `realestate-ai-web`) fail on every commit, as before. Live login pages answer 200.
+
 ## 2026-11-28 (later) — Claude Code (Mac) — ADR 0107 round-robin, tags, Nurture, booking link
 
 - The user: "start all the remaining work, tell me at 100%" (the 12-step audit's last 20%). Branch `feat/workflow-round-robin-tags`
