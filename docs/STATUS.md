@@ -1,4 +1,4 @@
-# Status — 2026-11-27 (Claude Code, Mac)
+# Status — 2026-11-28 (Claude Code, Mac)
 
 Short on purpose: where things stand now. History is in `docs/SESSION.md` and `docs/archive/`. The plan and the V1 to-do list
 are `docs/PLATFORM-PLAN.md` (section 14, with progress). Overwrite this file at each handoff; do not append.
@@ -7,6 +7,23 @@ are `docs/PLATFORM-PLAN.md` (section 14, with progress). Overwrite this file at 
 `main` = `e9745e0`: everything through ADR 0090 (hybrid Twilio) and ADR 0091 part A (control centre), live since 2026-11-16.
 V1 production-readiness: about 12% (PLATFORM-PLAN 14). Steps 0–2 nearly done; step 3 (backups) next.
 Branches waiting for a PR and merge: `chore/dev-db-and-prod-guard` (production guard + 0001 extensions fix), `docs/platform-plan` (this).
+
+## Workflows: stop on reply, run from the AI Assistant, 12 steps, Stop, run panel (ADR 0103, 0105, 0106) — LIVE: merge `e55284a` on `main`, 2026-11-28
+On the user's go: production backup `prod-20261128T092303Z.dump.enc` (146 tables; checked: 6 agencies, export_job present, no new
+index), migration **0110 `workflow_run_task_id_idx` on production** (111 applied; read-only check: index valid), merge (no-ff,
+two parents `cd0563e` + the branch), pushed. Vercel: admin, agent, agencyy, users Ready (09:37 UTC); the other five (`*-console*`, `realestate-ai-web`) fail on every commit, as before. Live login pages answer 200; `/api/automations` signed out redirects to sign-in.
+- ADR 0103: a run's later steps stop when the person emails or texts back after it began (default on; `stop_on_reply: false` to carry on).
+- ADR 0105: Overview's AI Assistant holds `create_workflow` / `change_workflow` (email + text steps in one); each step's switch is asked.
+- ADR 0106: up to 12 steps; Stop per run in the panel and "stop" from the chat (pause + end runs in flight); the run panel names who a
+  run is for and each step's time; 7 fixes from the 2026-11-28 browser run (ADR 0106 part 3).
+- Checked before merge: typecheck, lint, `pnpm test` (core 2641, AI 466), console + web `next build`, smoke "Workflows: stop on reply"
+  4/4 and "Workflows: stop a run" 4/4 on dev, TEST-PLAN DB1–4 / DC1–7 / DD1–10 in Playwright on dev with the live model (all pass).
+- **NOT tested anywhere:** a real SMS from a workflow (no TEST agency has Twilio), a real email (test contacts not on the dev
+  allowlist), a real reply through Resend's inbound webhook (the reply was inserted on dev). First live check: one agency with
+  Twilio, a workflow email → wait → text, and a reply.
+- Still on hold (the user): tags, a Nurture stage, round-robin; not built: a notice/task for the agent a run assigned, a per-agent booking link.
+- Dev: nothing ticks workflows on dev; the trial AI pool is $1/day across all trial agencies (hit during the run). Harbour (TEST)
+  keeps the run's data: templates Welcome/Hi, contacts Sara Khan + Ali Raza, 3 workflows (paused).
 
 ## Agency data export (ADR 0104) — LIVE: merge `569792b` on `main`, 2026-11-27
 On the user's go: production backup `prod-20261127T104903Z.dump.enc` (145 tables, checked: no export_job, 6 agencies), migration
@@ -17,8 +34,7 @@ Live: `/settings/data`, `/my-data` and `/api/exports/*` all ask for sign-in when
   new `bulk` lane into `exports/` in the documents bucket, bell + email, 60 s signed links for the asker, deleted after 24 h.
 - Checked before merge: `pnpm test` (core 2606, AI 466), typecheck, lint, console and web builds; smoke on dev; TEST-PLAN DA1–DA18
   in a browser on dev (8/8, real Storage, Resend `delivered`). NOT done live: an export on production (no real agency asked yet).
-- **Migration number clash:** `feat/workflow-stop-on-reply` (ADR 0103, worktree `realestate_ai-autom`) also has a `0109`. It must be
-  renamed 0110 (file, journal idx, snapshot) before it merges; its `when` is later than this one's, so drizzle applies it after.
+- The workflow branch's clashing 0109 was renamed 0110 before it merged (above).
 - Later (the user): the privacy policy must mention export; a large agency's timing is not measured.
 
 ## Import: exact address (ADR 0029 amendment) — LIVE: merge `3e2b132` on `main`, all 4 Vercel builds Ready, 2026-11-27
@@ -58,10 +74,10 @@ the column checked read-only), merge `--no-ff`, pushed; Vercel built all 4 proje
   URLs (`postgres.<ref>@aws-0-ap-southeast-2.pooler.supabase.com`, 6543 and 5432): the direct `db.<ref>` host is IPv6-only and fails
   with ENOTFOUND. 109 migrations (0000–0108), census loaded, buckets `media` (public), `documents`, `inspection-photos`, platform admin
   `admin@test.com`. **No agency yet**, so `pnpm db:seed` waits for a sign-up at `localhost:3001/get-started`.
-- **Production:** ref `xjklpoyxcvnlhjlxasmv`. Its values live only in Vercel (Production) and the password manager. 109 migrations
-  (0108 applied 2026-11-25, after a backup and a dev run). **PITR is off** (PLATFORM-PLAN decision 7).
+- **Production:** ref `xjklpoyxcvnlhjlxasmv`. Its values live only in Vercel (Production) and the password manager. 111 migrations
+  (0110 applied 2026-11-28, after a backup and a dev run). **PITR is off** (PLATFORM-PLAN decision 7).
 - **Backups:** encrypted `pg_dump` with `/Users/saadiii/Job/secure_backups/backup.sh` (key kept apart, full decrypt check). Last:
-  `prod-20261125T065102Z.dump.enc`. The script reads `.env.local` (now DEV): export production's `DIRECT_URL` first. Run it before every production migration until the scheduled dump (0.4) exists.
+  `prod-20261128T092303Z.dump.enc`. The script reads `.env.local` (now DEV): export production's `DIRECT_URL` first. Run it before every production migration until the scheduled dump (0.4) exists.
 - **The other laptop's `.env.local` still points at production.** Switch it to the dev values.
 - Smoke on dev, 2026-11-17: Database & migrations, Database health, Credentials, Tenant isolation (`SMOKE_CHECK_TIMEOUT_S=900`),
   Platform admin, all green.

@@ -3,6 +3,19 @@
 Entries before 2026-10-31 (late) are in `docs/archive/SESSION-to-2026-10-31.md`. Keep this file short: when it
 passes ~10 entries, move the older ones to a new archive file.
 
+## 2026-11-28 — Claude Code (Mac) — workflows (ADR 0103, 0105, 0106) LIVE
+
+- The user's go: production backup, migration 0110, merge `feat/workflow-stop-on-reply`, deploy.
+- `origin/main` unchanged (`cd0563e`); no 0110 or ADR 0105/0106 on it. Web `next build` exit 0 (console's already, on `479a97e`).
+- Prod read-only first (`begin transaction read only`, URL taken with grep from `secure_backups/env.local.production`, never
+  printed or sourced): 110 migrations, last = 0109 export, no index, 0 workflow_run rows, 6 agencies.
+- Backup `prod-20261128T092303Z.dump.enc` (146 tables; decrypted check: 6 agency rows, export_job present).
+- `drizzle-kit migrate` with prod `DIRECT_URL` + `CONFIRM_PRODUCTION` in that command's env: applied 0110 only. Read-only after:
+  111 migrations, `workflow_run_task_id_idx` valid.
+- Merge commit made with `git commit-tree` (parents `cd0563e` + branch, tree = the branch's, which already held main) so the
+  worktree under the user's dev server on :3011 was never switched; pushed the branch, re-checked main, pushed `e55284a` to main.
+- Vercel: admin, agent, agencyy, users Ready (09:37 UTC); the other five (`*-console*`, `realestate-ai-web`) fail on every commit, as before. Live login pages answer 200; `/api/automations` signed out redirects to sign-in.
+
 ## 2026-11-27 — Claude Code (Mac) — ADR 0103 stop on reply; ADR 0105 the AI Assistant runs workflows
 
 - The user asked whether Overview's AI Assistant (the home chat on `/overview` and the agent's `/assistant`) can run automations like "new lead → email → later a text" and hold every skill's context. It could not: Email and SMS chats each refused the other channel; Overview only listed workflows. Researched GoHighLevel, HubSpot, Follow Up Boss (pauses on reply), Salesforce Agentforce (supervisor, ~7 specialists). The user said go on three steps, in order.
