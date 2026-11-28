@@ -272,6 +272,7 @@ import {
 import { assistantDeps, runAssistantTurn, type AssistantEvent } from '@repo/ai/assistant';
 import { DASHBOARD_EVALS } from '@repo/ai/evals/dashboard-phrases';
 import { listWaitingDrafts, listWorkflows, runWorkflowTick, saveWorkflow, setWorkflowStatus, STOPPED_BY_HAND, STOPPED_BY_REPLY, stopWorkflowRun, stopWorkflowRuns } from '@repo/core/workflows';
+import { automationDetail } from '@repo/core/recurring';
 import { runDealSync } from '@repo/core/deals';
 import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-switches';
 import { consumerSkillBlocks, listConsumerSkills, setConsumerSkill, usersWithConsumerSkillOff } from '@repo/core/consumer-skills';
@@ -7697,6 +7698,21 @@ async function main() {
       const [wf] = await t.execute<{ status: string }>(sql`select status from workflow where id = ${x.w.workflowId}`);
       assert(stopped === 3 && wf!.status === 'paused' && (await x.second()) === 0, `stopped ${stopped}, ${wf!.status}, second rang ${await x.second()}`);
       return '3 runs in flight → 3 stopped, none rang its second step; the workflow paused';
+    }),
+  );
+
+  await check('the panel’s run says who it is for, the step done at its time, and the next due its wait later (ADR 0106 part 3)', async () =>
+    inRollback(async (t) => {
+      const x = await runningFixture(t, 1);
+      const [c] = await t.execute<{ name: string }>(sql`select name from contact where id = ${x.w.f.contacts.p2}`);
+      // The panel's own read: what /api/automations?detail= sends.
+      const r = (await automationDetail(t, x.w.actor, `workflow:${x.w.workflowId}`))?.runs[0];
+      assert(r && r.who === c!.name, `who: ${r?.who ?? 'no run'}`);
+      const [done, next] = r.steps ?? [];
+      assert(done?.status === 'done' && done.at && next?.status === 'scheduled' && next.at, `steps ${JSON.stringify(r.steps)}`);
+      const gap = new Date(next.at).getTime() - new Date(done.at).getTime();
+      assert(Math.abs(gap - 3_600_000) < 60_000, `the next step is due ${gap} ms after the first, not its 1 h wait`);
+      return 'who = the lead’s contact; step 1 done at its time; step 2 due 1 h after it (its wait)';
     }),
   );
 

@@ -2,7 +2,13 @@ import type { AutomationRow } from './list';
 
 /** One automation in full, for the details panel (the user, 2026-11-10). No database here: the browser imports it. */
 
-export type RunProgress = { id: string; status: string; at: string; finishedAt: string | null; total: number; sent: number; failed: number; skipped: number; remaining: number; detail: string | null; manual: boolean; /** ADR 0106: a workflow's run still going that this person may stop. */ canStop?: boolean };
+export type RunProgress = { id: string; status: string; at: string; finishedAt: string | null; total: number; sent: number; failed: number; skipped: number; remaining: number; detail: string | null; manual: boolean; /** ADR 0106: a workflow's run still going that this person may stop. */ canStop?: boolean;
+  /** ADR 0106 part 3, a workflow's run: who it is for, and each step with its time — or, not yet due, how long after the one before. */
+  who?: string | null;
+  steps?: AutomationStep[] };
+
+/** A step of a one-off task or of a workflow's run. `after`: a step not yet due, in words ("2 h after the step before"). */
+export type AutomationStep = { title: string; status: string; at: string | null; error: string | null; after?: string | null };
 
 export type AutomationDetail = AutomationRow & {
   /** The run going now, with what is left. */
@@ -10,7 +16,7 @@ export type AutomationDetail = AutomationRow & {
   /** Earlier runs, newest first. */
   runs: RunProgress[];
   /** A one-off task's steps, in order. */
-  steps: { title: string; status: string; at: string | null; error: string | null }[];
+  steps: AutomationStep[];
   /** May this person stop the run going now (or a task's later steps)? */
   canStop: boolean;
 };
@@ -64,6 +70,12 @@ export function readableSendError(raw: string | null): string | null {
     // Not JSON: the text as it came.
   }
   return `Refused by the sending service: ${message}`;
+}
+
+/** When a step not yet due will go, as far as it can be known: after the one before, plus its wait, inside its hours. */
+export function stepAfterWords(waitHours: number, window: boolean): string {
+  const base = waitHours > 0 ? `${readableDuration(waitHours * 3_600_000)} after the step before` : 'Right after the step before';
+  return window ? `${base}, inside its hours` : base;
 }
 
 /** "under a minute", "4 min", "1 h 20 min", "2 days": how long something took or has left. */

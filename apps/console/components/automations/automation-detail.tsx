@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { automationIcon, readableDuration, type AutomationDetail, type RunProgress } from '@repo/core/recurring/detail-types';
+import { automationIcon, readableDuration, type AutomationDetail, type AutomationStep, type RunProgress } from '@repo/core/recurring/detail-types';
 import type { AutomationPaths } from '@repo/core/automation-status/links';
 import { useToast } from '@/components/toast';
 import { stopAutomationRunAction, stopTaskAction, stopWorkflowRunAction } from '@/lib/automation-actions';
@@ -17,7 +17,7 @@ import styles from './automation-detail.module.css';
 
 const STATE = { active: 'Active', off: 'Off', finished: 'Finished' } as const;
 const TONE = { active: 'good', off: 'wait', finished: 'wait' } as const;
-const RUN = { running: 'Running', done: 'Done', stopped: 'Stopped', failed: 'Failed', skipped: 'Skipped', succeeded: 'Done', started: 'Started' } as Record<string, string>;
+const RUN = { running: 'Running', done: 'Done', stopped: 'Stopped', failed: 'Failed', skipped: 'Skipped', succeeded: 'Done', started: 'Started', scheduled: 'Due', blocked: 'Waiting', cancelled: 'Skipped' } as Record<string, string>;
 
 function when(at: string | null): string {
   if (!at) return '';
@@ -48,6 +48,31 @@ function Numbers({ r, noun }: { r: RunProgress; noun: string }) {
       <span className={styles.muted}>of {r.total}</span>
     </div>
   );
+}
+
+/** Each step with what happened and when: done at, due at, or — not yet due — how long after the one before. */
+function Steps({ steps }: { steps: AutomationStep[] }) {
+  return (
+    <ol className={styles.steps}>
+      {steps.map((s, i) => (
+        <li key={i} data-status={s.status}>
+          <span>{s.title}</span>
+          <span className={styles.muted}>
+            {RUN[s.status] ?? s.status}
+            {s.at ? ` · ${when(s.at)}` : s.after ? ` · ${s.after}` : ''}
+          </span>
+          {s.error ? <span className={styles.bad}>{s.error}</span> : null}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** A workflow run's step going now, or due next, with its time. */
+function nextStep(r: RunProgress): string | null {
+  const s = r.steps?.find((x) => x.status === 'running' || x.status === 'scheduled');
+  if (!s) return null;
+  return s.status === 'running' ? `Going now: ${s.title}` : `Next: ${s.title}${s.at ? ` · ${when(s.at)}` : ''}`;
 }
 
 function StopButton({ run }: { run: () => Promise<{ ok: boolean; error?: string }> }) {
@@ -188,18 +213,7 @@ export function AutomationDetailPanel({ automationKey, paths, inChat = false }: 
       {d.steps.length ? (
         <section className={styles.section}>
           <h3 className={styles.sectionTitle}>Steps</h3>
-          <ol className={styles.steps}>
-            {d.steps.map((s, i) => (
-              <li key={i} data-status={s.status}>
-                <span>{s.title}</span>
-                <span className={styles.muted}>
-                  {RUN[s.status] ?? s.status}
-                  {s.at ? ` · ${when(s.at)}` : ''}
-                </span>
-                {s.error ? <span className={styles.bad}>{s.error}</span> : null}
-              </li>
-            ))}
-          </ol>
+          <Steps steps={d.steps} />
         </section>
       ) : null}
 
@@ -213,10 +227,18 @@ export function AutomationDetailPanel({ automationKey, paths, inChat = false }: 
                   <span className={styles.runStatus} data-status={r.status}>
                     {RUN[r.status] ?? r.status}
                   </span>
+                  {r.who ? <span className={styles.runWho}>{r.who}</span> : null}
                   <span className={styles.muted}>{when(r.at)}</span>
                 </div>
                 {r.total ? <Numbers r={r} noun={noun} /> : null}
+                {nextStep(r) ? <p className={styles.note}>{nextStep(r)}</p> : null}
                 {r.detail ? <p className={styles.note}>{r.detail}</p> : null}
+                {r.steps?.length ? (
+                  <details className={styles.runSteps}>
+                    <summary>Each step</summary>
+                    <Steps steps={r.steps} />
+                  </details>
+                ) : null}
                 {r.canStop ? (
                   <StopButton
                     run={async () => {

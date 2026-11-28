@@ -332,8 +332,36 @@ export type WorkflowRunView = {
   error: string | null;
   /** ADR 0067: what the AI chose at the start, and why; null on a workflow with no decision. */
   decision: RunDecision | null;
-  steps: { title: string; status: string; error: string | null }[];
+  /** Who the run is for: the name its steps were made with (ADR 0106 part 3); null when it made none, or named no one. */
+  who: string | null;
+  /**
+   * Each step in order. `at`: when it finished (done, failed, stopped), or when it is due (the next one); null for a step not yet
+   * released, whose time depends on the one before — `waitHours` after it, then `window` (a wait-until's hours).
+   */
+  steps: { title: string; status: string; error: string | null; at: Date | null; waitHours: number; window: boolean }[];
 };
+
+type StepRow = { card: unknown; args: unknown; status: string; error: string | null; runAt: Date | null; finishedAt: Date | null };
+
+/** A run's steps as the panel shows them, and who it is for. Pure. */
+export function runSteps(rows: readonly StepRow[]): Pick<WorkflowRunView, 'who' | 'steps'> {
+  const who = rows.map((s) => (s.card as { contact?: { name?: string } }).contact?.name?.trim()).find(Boolean) ?? null;
+  return {
+    who,
+    steps: rows.map((s) => {
+      const args = (s.args ?? {}) as { gapHours?: unknown; window?: unknown };
+      const time = s.finishedAt ?? (s.status === 'scheduled' || s.status === 'running' ? s.runAt : null);
+      return {
+        title: (s.card as { title?: string }).title ?? '',
+        status: s.status,
+        error: s.error,
+        at: time ? new Date(time) : null,
+        waitHours: typeof args.gapHours === 'number' && args.gapHours > 0 ? args.gapHours : 0,
+        window: Boolean(args.window),
+      };
+    }),
+  };
+}
 
 /** One workflow's recent runs, each with its steps' outcomes — from the runs' tasks. */
 export async function workflowRuns(db: Db, actor: Actor, id: string, limit = 30): Promise<WorkflowRunView[]> {
@@ -342,7 +370,7 @@ export async function workflowRuns(db: Db, actor: Actor, id: string, limit = 30)
   const taskIds = runs.map((r) => r.taskId).filter((t): t is string => Boolean(t));
   const steps = taskIds.length
     ? await db
-        .select({ taskId: proposedAction.taskId, seq: proposedAction.taskSeq, card: proposedAction.card, status: proposedAction.status, error: proposedAction.error })
+        .select({ taskId: proposedAction.taskId, seq: proposedAction.taskSeq, card: proposedAction.card, args: proposedAction.args, status: proposedAction.status, error: proposedAction.error, runAt: proposedAction.runAt, finishedAt: proposedAction.finishedAt })
         .from(proposedAction)
         .where(inArray(proposedAction.taskId, taskIds))
         .orderBy(proposedAction.taskSeq)
@@ -353,7 +381,7 @@ export async function workflowRuns(db: Db, actor: Actor, id: string, limit = 30)
     status: r.status,
     error: r.error,
     decision: r.decision ?? null,
-    steps: steps.filter((s) => s.taskId === r.taskId).map((s) => ({ title: (s.card as { title?: string }).title ?? '', status: s.status, error: s.error })),
+    ...runSteps(steps.filter((s) => s.taskId === r.taskId)),
   }));
 }
 

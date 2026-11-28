@@ -2548,3 +2548,7 @@ Console, as an agency owner, "Workflow emails" and "Workflow texts" on. The engi
 | DD4 | As an agent, open an owner's agency-wide workflow in the panel | No Stop on its runs |
 | DD5 | Two leads running DD1; in the AI Assistant: "stop the new-lead automation" | A "Stop the workflow" card: After: Paused; Runs going: 2 … each stops; Approve → both runs stopped, the workflow paused |
 | DD6 | "Pause the new-lead automation" while a run is going | The card says the runs going carry on to the end |
+| DD7 | DD1 running for a lead "Sara Khan" (first email sent); open the chat's right panel → History | The run reads "Started · Sara Khan · <time>"; "1 steps done · N left"; "Next: Text … · <day, time>" 2 h after the email |
+| DD8 | Open "Each step" on that run | Email: Done · <time>; Text: Due · <time>; the rest "Waiting · 1 day after the step before" etc., in order; none with a made-up time |
+| DD9 | New chat on Overview: "pause the new-lead automation" (made in another chat), approve | The right panel shows the workflow itself (Off, its History), not a "Done in this chat" card; resume from the same chat → Active |
+| DD10 | Stop a run (DD3), then "Each step" | The steps not sent read "Skipped", with no time; the run says "Stopped by hand…" |
