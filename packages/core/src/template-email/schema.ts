@@ -13,12 +13,22 @@ export const BASE_MERGE_FIELDS = ['first_name', 'full_name', 'agent_name', 'agen
  * template that uses one cannot be sent anywhere else — it would go out with the braces in it.
  */
 export const LISTING_MERGE_FIELDS = ['listing_address', 'listing_price', 'listing_link'] as const;
+/**
+ * ADR 0107: the booking link of the contact's own agent, else the sender's — the rule a text's number follows. Someone with
+ * neither is skipped ("no_booking_link"), never sent the braces.
+ */
+export const BOOKING_MERGE_FIELDS = ['booking_link'] as const;
 /** The only merge fields there are. */
-export const MERGE_FIELDS = [...BASE_MERGE_FIELDS, ...LISTING_MERGE_FIELDS] as const;
+export const MERGE_FIELDS = [...BASE_MERGE_FIELDS, ...LISTING_MERGE_FIELDS, ...BOOKING_MERGE_FIELDS] as const;
 export type MergeField = (typeof MERGE_FIELDS)[number];
 export type ListingMergeField = (typeof LISTING_MERGE_FIELDS)[number];
 export type ListingMergeValues = Record<ListingMergeField, string>;
-export type MergeValues = Record<(typeof BASE_MERGE_FIELDS)[number], string> & Partial<ListingMergeValues>;
+export type MergeValues = Record<(typeof BASE_MERGE_FIELDS)[number], string> & Partial<ListingMergeValues> & { booking_link?: string };
+
+/** Does any of these texts use `{{booking_link}}`? Pure. */
+export function usesBookingLink(...texts: string[]): boolean {
+  return texts.some((t) => /\{\{\s*booking_link\s*\}\}/.test(t));
+}
 
 /** The listing fields these texts use, in field order. Pure. */
 export function listingFieldsUsed(...texts: string[]): ListingMergeField[] {
@@ -97,6 +107,7 @@ export const SKIP_REASONS = [
   'dev_allowlist',
   'email_changed',
   'daily_limit',
+  'no_booking_link',
 ] as const;
 export type SkipReason = (typeof SKIP_REASONS)[number];
 
@@ -111,6 +122,7 @@ export const SKIP_REASON_LABELS: Record<SkipReason, string> = {
   dev_allowlist: 'Not on the development allowlist (nothing real is sent in development)',
   email_changed: 'Their email address changed since Prepare',
   daily_limit: 'Daily sending limit reached',
+  no_booking_link: 'Their agent has no booking link yet (each person adds theirs on Connectors)',
 };
 
 export const BATCH_STATUS_LABELS = {

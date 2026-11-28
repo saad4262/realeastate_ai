@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import type { Db } from '@repo/db';
 import type { Actor } from '../permissions';
-import { conditionsHold, distanceKm, inScope, scanNoReply, stepsFor, triggerMatches, type Facts } from './engine';
+import { conditionsHold, distanceKm, inScope, pickInTurn, scanNoReply, stepsFor, triggerMatches, type Facts } from './engine';
+import { specProblem, workflowSpecSchema } from './catalog';
 
 /** ADR 0041 Part B: the engine's decisions that need no database. */
 
@@ -226,5 +227,69 @@ describe('PLATFORM-PLAN 3.4: an import starts only what asked for imports', () =
     expect([triggerMatches(any, { source: 'manual' }), triggerMatches(any, { source: 'import' })]).toEqual([true, false]);
     expect([triggerMatches(imported, { source: 'manual' }), triggerMatches(imported, { source: 'import' })]).toEqual([false, true]);
     expect([triggerMatches(byHand, { source: 'manual' }), triggerMatches(byHand, { source: 'import' })]).toEqual([true, false]);
+  });
+});
+
+describe('ADR 0107: in turn, the agent told, a tag, Nurture', () => {
+  const now = new Date('2026-11-28T00:00:00Z');
+  const THIRD = '44444444-4444-4444-8444-444444444444';
+  const spec = (actions: unknown[]) => workflowSpecSchema.parse({ trigger: { kind: 'lead.created' }, conditions: [], actions });
+  const names = { [AGENT]: 'Liam Carter', [OTHER]: 'Olivia Nguyen', [THIRD]: 'Noah Patel' };
+
+  it('the turn goes round the members still in the agency, in their order', () => {
+    const pool = [AGENT, OTHER, THIRD];
+    expect([1, 2, 3, 4, 5].map((t) => pickInTurn(pool, t))).toEqual([AGENT, OTHER, THIRD, AGENT, OTHER]);
+    expect(pickInTurn([OTHER], 7)).toBe(OTHER);
+    expect(pickInTurn([], 1)).toBeNull();
+  });
+
+  it('assign_in_turn gives the lead AND the contact to the member whose turn it is; a wait before it belongs to the first', () => {
+    const s = stepsFor({ name: 'W' }, spec([{ type: 'wait', hours: 2 }, { type: 'assign_in_turn', among: [AGENT, OTHER, THIRD] }]), facts({ leadAssignee: null, contactAssignee: null }), {}, now, 'Australia/Sydney', names, OTHER);
+    if ('problem' in s) throw new Error(s.problem);
+    expect(s.map((x) => x.args)).toEqual([
+      { tool: 'assign_lead', leadId: 'lead-1', to: OTHER, from: null, gapHours: 2 },
+      { tool: 'assign_contacts', to: OTHER, contactIds: ['contact-1'], from: { 'contact-1': null } },
+    ]);
+    expect(s.map((x) => x.card.title)).toEqual(['Give the lead to Olivia Nguyen, in turn', 'Give the contact to Olivia Nguyen, in turn']);
+  });
+
+  it('with nobody left to take a turn, the run is not made and says why', () => {
+    expect(stepsFor({ name: 'W' }, spec([{ type: 'assign_in_turn', among: [AGENT, OTHER] }]), facts(), {}, now, 'Australia/Sydney', names, null)).toEqual({
+      problem: 'none of the members it gives leads to in turn is still in the agency',
+    });
+  });
+
+  it('message_assigned_agent tells whoever this run gave it to — else the lead’s agent, else the contact’s, else nobody', () => {
+    const msg = { type: 'message_assigned_agent', subject: 'New lead for {{contact_first_name}}', body: 'It is yours' };
+    const turn = stepsFor({ name: 'W' }, spec([{ type: 'assign_in_turn', among: [AGENT, OTHER] }, msg]), facts(), { contact_first_name: 'Sara' }, now, 'Australia/Sydney', names, OTHER);
+    if ('problem' in turn) throw new Error(turn.problem);
+    expect(turn[2]!.args).toEqual({ tool: 'message_colleagues', to: [OTHER], subject: 'New lead for Sara', body: 'It is yours' });
+    expect(turn[2]!.card.title).toBe('Message Olivia Nguyen: “New lead for Sara”');
+    const lead = stepsFor({ name: 'W' }, spec([msg]), facts({ leadAssignee: THIRD, contactAssignee: AGENT }), {}, now, 'Australia/Sydney');
+    expect(!('problem' in lead) && lead[0]!.args).toMatchObject({ to: [THIRD] });
+    const contactOnly = stepsFor({ name: 'W' }, spec([msg]), facts({ leadAssignee: null, contactAssignee: AGENT }), {}, now, 'Australia/Sydney');
+    expect(!('problem' in contactOnly) && contactOnly[0]!.args).toMatchObject({ to: [AGENT] });
+    expect(stepsFor({ name: 'W' }, spec([msg]), facts({ leadAssignee: null, contactAssignee: null }), {}, now, 'Australia/Sydney')).toEqual({ problem: 'nobody has been given it yet, so there is no agent to message' });
+  });
+
+  it('tag_contact tags the run’s contact; set_lead_status takes Nurture', () => {
+    const s = stepsFor({ name: 'W' }, spec([{ type: 'tag_contact', tag: 'Cold' }, { type: 'set_lead_status', to: 'nurture' }]), facts(), {}, now, 'Australia/Sydney');
+    if ('problem' in s) throw new Error(s.problem);
+    expect(s.map((x) => x.args)).toEqual([
+      { tool: 'tag_contact', contactId: 'contact-1', tag: 'Cold' },
+      { tool: 'set_lead_status', leadId: 'lead-1', status: 'nurture', before: 'new' },
+    ]);
+    expect(s.map((x) => x.card.title)).toEqual(['Tag the contact “Cold”', 'Move the lead to Nurture']);
+    expect(s[0]!.contactId).toBe('contact-1');
+  });
+
+  it('in turn is agency-wide only, needs 2 to 20 different members; a tag is 1 to 30 characters', () => {
+    const one = (a: unknown) => workflowSpecSchema.safeParse({ trigger: { kind: 'lead.created' }, conditions: [], actions: [a] });
+    expect(specProblem(spec([{ type: 'assign_in_turn', among: [AGENT, OTHER] }]), 'mine')).toMatch(/only an agency-wide workflow/);
+    expect(specProblem(spec([{ type: 'assign_in_turn', among: [AGENT, OTHER] }]), 'agency')).toBeNull();
+    expect(one({ type: 'assign_in_turn', among: [AGENT] }).success).toBe(false);
+    expect(one({ type: 'assign_in_turn', among: [AGENT, AGENT] }).success).toBe(false);
+    expect(one({ type: 'tag_contact', tag: 'x'.repeat(31) }).success).toBe(false);
+    expect(one({ type: 'tag_contact', tag: '  ' }).success).toBe(false);
   });
 });

@@ -16,7 +16,7 @@ import { can, type Actor, type Resource } from '../permissions';
 import { contactListQuerySchema } from '../contacts/contact-schema';
 import { contactQueryFilters } from '../contacts/list-contacts';
 import { checkEmailLimits, type TemplateLimits } from '../email/limits';
-import { BATCH_TTL_MS, listingFieldsUsed, renderMerge, type MergeValues, type SkipReason, type TemplateChannel } from './schema';
+import { BATCH_TTL_MS, listingFieldsUsed, renderMerge, usesBookingLink, type MergeValues, type SkipReason, type TemplateChannel } from './schema';
 import { withStopFooter } from './sms';
 import { listingSnapshotFor, listingValuesOf, type ListingSnapshot } from './listing-values';
 import { mayUseTemplate, TemplateEmailError } from './templates';
@@ -145,6 +145,7 @@ export async function classifyRecipients(
     );
   }
   const listingSnap = input.listingId ? await listingSnapshotFor(db, actor, input.listingId, uses) : null;
+  const needsBooking = usesBookingLink(tpl.subject, tpl.body);
   const picked = 'contactIds' in input ? [...new Set(input.contactIds)] : null;
   let filter: { id: string; name: string; query: unknown } | null = null;
   if (picked) {
@@ -176,6 +177,7 @@ export async function classifyRecipients(
       optOutAt: contact.emailOptOutAt,
       // Recorded, or inferred from an enquiry or a client role (ADR 0043) — one definition, also used at send.
       consent: hasMarketingConsentSql(),
+      bookingUrl: needsBooking ? bookingLinkSql(actor.userId) : sql<string | null>`null`,
     })
     .from(contact)
     .where(
@@ -196,6 +198,7 @@ export async function classifyRecipients(
       consent: truthy(r.consent),
       email: r.email,
     });
+    if (!reason && needsBooking && !r.bookingUrl) reason = 'no_booking_link';
     if (!reason) {
       if (toSend >= limits.perBatch) reason = 'batch_limit';
       else toSend += 1;
@@ -306,6 +309,10 @@ function effectiveStatus(status: string, expiresAt: Date, now: Date): BatchStatu
   return status === 'prepared' && expiresAt.getTime() <= now.getTime() ? 'expired' : (status as BatchStatus);
 }
 
+/** ADR 0107: the booking link a recipient gets — their own agent's, else the sender's. A column expression on `contact`. */
+export const bookingLinkSql = (senderId: string) =>
+  sql<string | null>`coalesce((select u.booking_url from "user" u where u.id = ${contact.assignedTo}), (select u.booking_url from "user" u where u.id = ${senderId}::uuid))`;
+
 export async function mergeValuesFor(db: DbOrTx, batch: { agencyId: string; userId: string; listingSnapshot?: unknown }) {
   // ADR 0060: a batch prepared from a listing carries its listing values, frozen at Prepare.
   const fromListing = listingValuesOf(batch.listingSnapshot);
@@ -315,12 +322,13 @@ export async function mergeValuesFor(db: DbOrTx, batch: { agencyId: string; user
     .innerJoin(agency, eq(agency.id, batch.agencyId))
     .where(eq(user.id, batch.userId))
     .limit(1);
-  return (name: string): MergeValues => ({
+  return (name: string, bookingLink?: string | null): MergeValues => ({
     first_name: name.trim().split(/\s+/)[0] || name,
     full_name: name,
     agent_name: who?.agentName || who?.agentEmail || 'your agent',
     agency_name: who?.agencyName || 'the agency',
     ...fromListing,
+    ...(bookingLink ? { booking_link: bookingLink } : {}),
   });
 }
 

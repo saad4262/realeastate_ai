@@ -132,6 +132,7 @@ export function LeadSummary({ summary: s }: { summary: ContactLeadSummary }) {
         <Stat value={s.new} label="New" />
         <Stat value={s.contacted} label="Contacted" />
         <Stat value={s.qualified} label="Qualified" />
+        <Stat value={s.nurture} label="Nurture" />
         <Stat value={s.closed} label="Closed" />
         <Stat value={s.waiting} label="Open, no reply yet" />
         <Stat value={s.averageFirstReplySeconds === null ? '—' : durationWords(s.averageFirstReplySeconds)} label="Average first reply" />

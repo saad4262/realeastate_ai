@@ -3,6 +3,7 @@ import { appointment, contact, lead, listing, mailMessage, property } from '@rep
 import type { DbOrTx } from '@repo/db';
 import type { Action, Actor } from '../permissions';
 import { leadScopeFilters } from '../leads/list-leads';
+import { LEAD_STATUSES } from '../workflows/catalog';
 import { appointmentScopeFilters } from '../appointments/appointments';
 import { APPOINTMENT_STATUS_LABELS, APPOINTMENT_STATUSES, APPOINTMENT_TYPE_LABELS, APPOINTMENT_TYPES } from '../appointments/appointment-schema';
 import { threadScopeFilters } from '../mail/threads';
@@ -272,10 +273,10 @@ export const DATASETS = {
       kind: { label: 'Type of enquiry', about: 'enquiry, inspection, appraisal', expr: sql`${lead.kind}::text`, values: ['enquiry', 'inspection', 'appraisal'], valueLabels: LEAD_KIND_LABELS },
       status: {
         label: 'Status',
-        about: 'new, contacted, qualified, closed',
+        about: 'new, contacted, qualified, nurture, closed',
         expr: sql`${lead.status}::text`,
-        values: ['new', 'contacted', 'qualified', 'closed'],
-        valueLabels: { new: 'New', contacted: 'Contacted', qualified: 'Qualified', closed: 'Closed' },
+        values: [...LEAD_STATUSES],
+        valueLabels: { new: 'New', contacted: 'Contacted', qualified: 'Qualified', nurture: 'Nurture', closed: 'Closed' },
       },
       property: {
         label: 'Property',

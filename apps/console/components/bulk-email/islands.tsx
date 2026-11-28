@@ -88,6 +88,7 @@ export function TemplateForm({
         <span className={contactStyles.hint}>
           Merge fields: {BASE_MERGE_FIELDS.map((f) => `{{${f}}}`).join(' ')}. For a template sent from a listing&apos;s Matching
           buyers tab, also {LISTING_MERGE_FIELDS.map((f) => `{{${f}}}`).join(' ')} — such a template can only be sent from there.
+          {'{{booking_link}}'} is the booking page of each person&apos;s own agent (set on Connectors); someone whose agent has none is skipped.
           An unsubscribe link and the agency&apos;s details are added to every email automatically.
         </span>
       </label>

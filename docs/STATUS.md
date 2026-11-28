@@ -8,6 +8,14 @@ are `docs/PLATFORM-PLAN.md` (section 14, with progress). Overwrite this file at 
 V1 production-readiness: about 12% (PLATFORM-PLAN 14). Steps 0–2 nearly done; step 3 (backups) next.
 Branches waiting for a PR and merge: `chore/dev-db-and-prod-guard` (production guard + 0001 extensions fix), `docs/platform-plan` (this).
 
+## Round-robin, tags, Nurture, booking link (ADR 0107) — branch `feat/workflow-round-robin-tags`, NOT merged, 2026-11-28
+Migration **0111** (on DEV only): `lead_status` nurture, `contact.tags`, `user.booking_url`, `workflow.turn`, `tag_contact` in the tool
+CHECK. Workflow steps `assign_in_turn` (lead + contact, in turn), `message_assigned_agent`, `tag_contact`; tags by hand, filter,
+export; `{{booking_link}}` (contact's agent's link, else sender's, else skipped); prompt `assistant@v33`. With it the user's
+12-step new-lead prompt is ONE workflow. Checked: typecheck, lint, `pnpm test` (core 2657, AI 466), both builds, smoke ADR 0107
+group 3/3, break-tests red, TEST-PLAN DE1/3/4/5/6/7 in the browser on dev with the live model. **To go live:** backup →
+migration 0111 → merge (the user's go). Then the first live check: a real agency with Twilio, email → wait → text, and a reply.
+
 ## Workflows: stop on reply, run from the AI Assistant, 12 steps, Stop, run panel (ADR 0103, 0105, 0106) — LIVE: merge `e55284a` on `main`, 2026-11-28
 On the user's go: production backup `prod-20261128T092303Z.dump.enc` (146 tables; checked: 6 agencies, export_job present, no new
 index), migration **0110 `workflow_run_task_id_idx` on production** (111 applied; read-only check: index valid), merge (no-ff,

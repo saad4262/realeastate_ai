@@ -62,6 +62,7 @@ export const SMS_SKIP_REASONS = [
   'auto_limit',
   'skill_off',
   'dev_allowlist',
+  'no_booking_link',
 ] as const;
 export type SmsSkipReason = (typeof SMS_SKIP_REASONS)[number];
 
@@ -78,6 +79,7 @@ export const SMS_SKIP_REASON_LABELS: Record<SmsSkipReason, string> = {
   auto_limit: 'Already sent the most automatic texts allowed today',
   skill_off: '“Workflow texts” is off in Skills for the agent whose number it goes from',
   dev_allowlist: 'Not on the development allowlist (SMS_DEV_ALLOWLIST) — nothing real is texted outside production',
+  no_booking_link: 'Their agent has no booking link yet (each person adds theirs on Connectors)',
 };
 
 /**

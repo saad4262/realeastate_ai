@@ -20,6 +20,7 @@ import {
   type TimelineItem,
 } from '@repo/core/contacts';
 import { ContactAssign } from './contact-assign';
+import { ContactTags } from './contact-tags';
 import { ContactForm, type ContactFormValues } from './contact-form';
 import {
   ArchiveButton,
@@ -249,6 +250,10 @@ export function OverviewTab({
                 <span className={styles.muted}>None yet</span>
               )}
             </dd>
+            <dt>Tags</dt>
+            <dd>
+              <ContactTags contactId={c.id} tags={c.tags} mayEdit={c.mayUpdate} />
+            </dd>
             <dt>Looking for</dt>
             <dd>
               {lookingFor.length ? (
@@ -397,6 +402,9 @@ function activityText(item: Extract<TimelineItem, { type: 'activity' }>): string
       return typeof p.role === 'string' && p.role in CONTACT_ROLE_LABELS
         ? CONTACT_ROLE_LABELS[p.role as keyof typeof CONTACT_ROLE_LABELS]
         : null;
+    case 'tag_added':
+    case 'tag_removed':
+      return typeof p.tag === 'string' ? p.tag : null;
     case 'contact_updated':
       return Array.isArray(p.fields) ? `Changed: ${p.fields.join(', ')}` : null;
     // ADR 0079: the same person added again.

@@ -22,6 +22,7 @@ function hrefFor(basePath: string, query: Partial<ContactListQuery>, page: numbe
   const p = new URLSearchParams();
   if (query.q) p.set('q', query.q);
   if (query.role) p.set('role', query.role);
+  if (query.tag) p.set('tag', query.tag);
   if (query.source) p.set('source', query.source);
   if (query.assigned) p.set('assigned', query.assigned);
   if (query.archived) p.set('archived', query.archived);
@@ -47,6 +48,7 @@ export function ContactDirectory({
   title,
   subtitle,
   assignees,
+  tags,
 }: {
   page: ContactPage;
   query: Partial<ContactListQuery>;
@@ -55,8 +57,10 @@ export function ContactDirectory({
   subtitle: string;
   /** Members to filter by. Empty unless this actor may assign (can()). */
   assignees: ContactAssignee[];
+  /** ADR 0107: every tag on the people this actor sees, for the filter. */
+  tags: string[];
 }) {
-  const filtered = Boolean(query.q || query.role || query.source || query.assigned || query.archived);
+  const filtered = Boolean(query.q || query.role || query.tag || query.source || query.assigned || query.archived);
   const first = (page.page - 1) * page.pageSize + 1;
   const last = first + page.rows.length - 1;
   const hasNext = last < page.total;
@@ -105,6 +109,14 @@ export function ContactDirectory({
             <option key={r} value={r}>{CONTACT_ROLE_LABELS[r]}</option>
           ))}
         </select>
+        {tags.length || query.tag ? (
+          <select className={styles.select} name="tag" defaultValue={query.tag ?? ''} aria-label="Tag">
+            <option value="">Any tag</option>
+            {[...new Set([...tags, ...(query.tag ? [query.tag] : [])])].map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        ) : null}
         <select className={styles.select} name="source" defaultValue={query.source ?? ''} aria-label="Source">
           <option value="">Any source</option>
           {CONTACT_SOURCES.map((s) => (
@@ -187,10 +199,13 @@ export function ContactDirectory({
                     ) : null}
                   </td>
                   <td>
-                    {c.roles.length ? (
+                    {c.roles.length || c.tags.length ? (
                       <div className={styles.chips}>
                         {c.roles.map((r) => (
                           <span key={r} className={styles.chip}>{CONTACT_ROLE_LABELS[r]}</span>
+                        ))}
+                        {c.tags.map((t) => (
+                          <span key={`tag:${t}`} className={styles.chipInferred} title="Tag">{t}</span>
                         ))}
                       </div>
                     ) : (

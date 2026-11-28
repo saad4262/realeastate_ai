@@ -11,6 +11,7 @@ import {
   startConnect,
   tokenKeysFromEnv,
 } from '@repo/core/integrations';
+import { BookingLinkError, setBookingLink } from '@repo/core/team';
 import { getConsoleDb } from './db';
 import { loadActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
@@ -97,4 +98,19 @@ export async function disconnectIntegrationAction(formData: FormData): Promise<v
   revalidatePath('/settings/integrations');
   revalidatePath('/my-integrations');
   redirect(`${path}?${message}`);
+}
+
+/** ADR 0107: this person's own booking link (an empty value clears it). Their own connector — decided in core. */
+export async function setBookingLinkAction(url: string): Promise<{ ok: true; url: string | null } | { ok: false; error: string }> {
+  const who = await actor();
+  try {
+    const saved = await setBookingLink(getConsoleDb(), who, url);
+    revalidatePath('/settings/integrations');
+    revalidatePath('/my-integrations');
+    return { ok: true, url: saved };
+  } catch (err) {
+    if (err instanceof BookingLinkError) return { ok: false, error: err.message };
+    console.error('[integrations] booking link failed', err instanceof Error ? err.message : 'unknown');
+    return { ok: false, error: 'Could not save the link' };
+  }
 }

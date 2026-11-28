@@ -1,5 +1,6 @@
 export {
   listContacts,
+  listContactTags,
   ContactError,
   CONTACT_NOT_FOUND,
   type ContactPage,
@@ -23,6 +24,8 @@ export {
   assignableMember,
   recordMarketingConsent,
   withdrawMarketingConsent,
+  tagContact,
+  untagContact,
   editContactDetails,
   UNSUBSCRIBED_REASON,
   type ContactAssignee,

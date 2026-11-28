@@ -12,6 +12,7 @@ import {
   assignContact,
   editContactDetails,
   recordMarketingConsent,
+  tagContact,
   setContactArchived,
   setNextAction,
   withdrawMarketingConsent,
@@ -58,7 +59,7 @@ import { AutomationError, createAutomation } from '../recurring/manage';
 import { AUTOMATION_SKILL, type AutomationDraft, type AutomationKind } from '../recurring/kinds';
 import { runWorkflowAction } from './workflow-tools';
 import { runTemplateAction } from './template-tools';
-import type { WorkflowSpec } from '../workflows/catalog';
+import type { LEAD_STATUSES, WorkflowSpec } from '../workflows/catalog';
 import { createWorkflowDraft, type DraftWriter } from '../workflows/drafts';
 import type { SkillScheduleInput } from '../skills/skill-schema';
 import { ListingError } from '../listings/listing-schema';
@@ -163,7 +164,7 @@ export type FrozenArgs =
       requires: IntegrationProvider[];
     }
   /** ADR 0040: a lead's status, as the card showed it before (`before`). "Delete" a lead = closed. */
-  | { tool: 'set_lead_status'; leadId: string; status: 'new' | 'contacted' | 'qualified' | 'closed'; before: string }
+  | { tool: 'set_lead_status'; leadId: string; status: (typeof LEAD_STATUSES)[number]; before: string }
   /** ADR 0040, owners/admins: give a lead to a member. */
   | { tool: 'assign_lead'; leadId: string; to: string; from: string | null }
   /** ADR 0040: a lead recorded by hand — the person's own, source `manual`. */
@@ -218,7 +219,9 @@ export type FrozenArgs =
   | { tool: 'send_template_sms'; batchId: string; templateId: string; contactIds: string[] }
   | { tool: 'send_template_sms'; templateId: string; contactIds: string[]; workflowName: string }
   /** ADR 0078: a workflow step that leaves a `save_buyer_brief` card for its owner; it changes nothing itself. */
-  | { tool: 'propose_ai_brief'; leadId: string; workflowName: string };
+  | { tool: 'propose_ai_brief'; leadId: string; workflowName: string }
+  /** ADR 0107: a workflow step that puts a free tag on the contact (its owner's permission, checked when it runs). */
+  | { tool: 'tag_contact'; contactId: string; tag: string };
 
 /** The contacts whose timelines carry this action's audit lines. */
 function auditContacts(row: { contactId: string | null; args: unknown }): string[] {
@@ -478,6 +481,11 @@ async function execute(
       const { id } = await storePreparedSmsBatch(tx, actor, c, now);
       const { sendsAt } = await approveSmsBatch(tx, actor, id, now);
       return { result: { smsBatchId: id, sendsAt: sendsAt.toISOString() }, smsBatchId: id };
+    }
+    case 'tag_contact': {
+      // tagContact asks contact:update again; the same word in any case is there once.
+      const out = await tagContact(tx, actor, args.contactId, args.tag, { via: 'assistant' });
+      return { result: { contactId: args.contactId, tag: args.tag, out } };
     }
     case 'propose_ai_brief': {
       // A card for the owner, never a change: what reaches the contact waits for their Approve.

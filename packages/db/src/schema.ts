@@ -92,6 +92,8 @@ export const leadStatusEnum = pgEnum('lead_status', [
   'new',
   'contacted',
   'qualified',
+  // ADR 0107: kept warm over time — still open, like the three before it.
+  'nurture',
   'closed',
 ]);
 
@@ -125,6 +127,8 @@ export const user = pgTable('user', {
    */
   blockedAt: timestamp('blocked_at', { withTimezone: true }),
   blockedReason: text('blocked_reason'),
+  /** ADR 0107: their own booking page (Calendly or any https link), set on their Connectors page; `{{booking_link}}` in a template. */
+  bookingUrl: text('booking_url'),
   ...timestamps,
 });
 
@@ -1068,6 +1072,8 @@ export const contact = pgTable(
       onDelete: 'set null',
     }),
     createdBy: uuid('created_by').references(() => user.id, { onDelete: 'set null' }),
+    /** ADR 0107: free words on a person ("Cold", "VIP"), by hand or by a workflow; at most 20, each once whatever its case. */
+    tags: text('tags').array().notNull().default(sql`'{}'::text[]`),
     ...timestamps,
   },
   (t) => [
@@ -2846,6 +2852,8 @@ export const workflow = pgTable(
     /** Why it is paused, when the system paused it (its owner left, a limit). */
     pausedReason: text('paused_reason'),
     version: integer('version').notNull().default(1),
+    /** ADR 0107: how many runs an `assign_in_turn` step has given out — the next one goes to member `turn % n`. */
+    turn: integer('turn').notNull().default(0),
     ...timestamps,
   },
   (t) => [index('workflow_agency_idx').on(t.agencyId, t.status), index('workflow_owner_idx').on(t.ownerId, t.status)],

@@ -11,6 +11,7 @@ export const STATUS_LABEL: Record<LeadStatus, string> = {
   new: 'New',
   contacted: 'Contacted',
   qualified: 'Qualified',
+  nurture: 'Nurture',
   closed: 'Closed',
 };
 

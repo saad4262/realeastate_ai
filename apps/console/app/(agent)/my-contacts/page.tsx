@@ -1,6 +1,7 @@
 import {
   contactListQuerySchema,
   listContactAssignees,
+  listContactTags,
   listContacts,
   type ContactAssignee,
   type ContactPage,
@@ -25,6 +26,7 @@ export default async function ContactsPage({
   const query = contactListQuerySchema.parse({
     q: first(raw.q),
     role: first(raw.role) || undefined,
+    tag: first(raw.tag) || undefined,
     source: first(raw.source) || undefined,
     assigned: first(raw.assigned) || undefined,
     archived: first(raw.archived) || undefined,
@@ -33,11 +35,13 @@ export default async function ContactsPage({
 
   let page: ContactPage | null = null;
   let assignees: ContactAssignee[] = [];
+  let tags: string[] = [];
   let loadError: string | null = null;
   try {
-    [page, assignees] = await Promise.all([
+    [page, assignees, tags] = await Promise.all([
       listContacts(getConsoleDb(), session.actor, query),
       listContactAssignees(getConsoleDb(), session.actor),
+      listContactTags(getConsoleDb(), session.actor),
     ]);
   } catch (err) {
     loadError = err instanceof Error ? err.message : 'Failed to load contacts';
@@ -59,6 +63,7 @@ export default async function ContactsPage({
       title="My contacts"
       subtitle="People assigned to you, and anyone who enquired through a listing or lead of yours."
       assignees={assignees}
+      tags={tags}
     />
   );
 }

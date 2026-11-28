@@ -1,0 +1,8 @@
+-- ADR 0107: a Nurture lead stage, free tags on a contact, each person's booking link, and a workflow's turn for round-robin. Additive and idempotent.
+SET LOCAL lock_timeout = '1s';--> statement-breakpoint
+ALTER TYPE "public"."lead_status" ADD VALUE IF NOT EXISTS 'nurture' BEFORE 'closed';--> statement-breakpoint
+ALTER TABLE "contact" ADD COLUMN IF NOT EXISTS "tags" text[] DEFAULT '{}'::text[] NOT NULL;--> statement-breakpoint
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "booking_url" text;--> statement-breakpoint
+ALTER TABLE "workflow" ADD COLUMN IF NOT EXISTS "turn" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "proposed_action" DROP CONSTRAINT IF EXISTS "proposed_action_tool_check";--> statement-breakpoint
+ALTER TABLE "proposed_action" ADD CONSTRAINT "proposed_action_tool_check" CHECK (tool IN ('add_note', 'set_next_action', 'schedule_appointment', 'reschedule_appointment', 'cancel_appointment', 'send_template_email', 'create_dashboard', 'update_dashboard', 'assign_contacts', 'record_marketing_consent', 'withdraw_marketing_consent', 'update_contact', 'set_contact_archived', 'update_agent', 'remove_agent', 'send_email', 'message_colleagues', 'schedule_team_meeting', 'set_lead_status', 'assign_lead', 'create_lead', 'create_contact', 'plan_task', 'cancel_task', 'create_listing_draft', 'update_listing', 'withdraw_listing', 'submit_listing', 'invite_agent', 'set_up_skill', 'change_skill', 'create_workflow', 'change_workflow', 'create_template', 'remind', 'draft_email', 'switch_skill', 'save_buyer_brief', 'propose_ai_brief', 'send_template_sms', 'tag_contact'));

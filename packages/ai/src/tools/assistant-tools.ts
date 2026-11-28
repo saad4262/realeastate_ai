@@ -137,15 +137,16 @@ const WORKFLOW_ACTION_ITEM = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    type: { type: 'string', enum: ['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'send_template_email', 'send_template_sms', 'draft_email', 'save_ai_brief', 'wait', 'wait_until'], description: 'save_ai_brief (ADR 0078): leave the person a card to approve with the buyer brief the AI found in the enquiry — it never saves by itself. send_template_sms: text one of their SMS templates to the contact by itself (needs "Workflow texts" on in Skills).' },
+    type: { type: 'string', enum: ['add_note', 'set_next_action', 'remind_owner', 'set_lead_status', 'assign_lead', 'assign_contact', 'message_colleagues', 'assign_in_turn', 'message_assigned_agent', 'tag_contact', 'send_template_email', 'send_template_sms', 'draft_email', 'save_ai_brief', 'wait', 'wait_until'], description: 'assign_in_turn (agency scope only): give the lead and the contact to the next of members, in turn (round-robin). message_assigned_agent: message whoever this run gave it to (else the lead\'s or contact\'s agent). tag_contact: put a tag on the contact. save_ai_brief (ADR 0078): leave the person a card to approve with the buyer brief the AI found in the enquiry — it never saves by itself. send_template_sms: text one of their SMS templates to the contact by itself (needs "Workflow texts" on in Skills).' },
     text: { type: 'string', description: 'add_note / set_next_action / remind_owner: the exact words (merge fields allowed).' },
     in_days: { type: 'integer', description: 'set_next_action: due in N days (0–60).' },
     mail_me: { type: 'boolean', description: 'remind_owner: also email it to the person.' },
-    lead_status: { type: 'string', enum: ['new', 'contacted', 'qualified', 'closed'], description: 'set_lead_status.' },
+    lead_status: { type: 'string', enum: [...LEAD_STATUSES], description: 'set_lead_status.' },
     member: { type: 'string', description: 'assign_lead / assign_contact (agency scope only): an M reference.' },
-    members: { type: 'array', items: { type: 'string' }, description: 'message_colleagues: M references.' },
-    subject: { type: 'string', description: 'message_colleagues.' },
-    body: { type: 'string', description: 'message_colleagues: the exact words.' },
+    members: { type: 'array', items: { type: 'string' }, description: 'message_colleagues: up to 10 M references. assign_in_turn: 2 to 20 M references from find_team_members, in the order they take turns.' },
+    subject: { type: 'string', description: 'message_colleagues / message_assigned_agent.' },
+    body: { type: 'string', description: 'message_colleagues / message_assigned_agent: the exact words.' },
+    tag: { type: 'string', description: 'tag_contact: the tag in the person\'s words, 1–30 characters (e.g. Cold).' },
     template: { type: 'string', description: 'send_template_email: a T reference from list_templates. send_template_sms: a T reference from list_templates with channel "sms".' },
     instructions: { type: 'string', description: 'draft_email: what the AI should write about, in the person’s words. It becomes a draft for them to approve.' },
     hours: { type: 'integer', description: 'wait: hours before the next step (1–720).' },
@@ -160,13 +161,14 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   {
     name: 'find_contacts',
     description:
-      "Search the contacts this person may see in the CRM — the same people their contact directory lists. Returns references (C1, C2…), names, roles and who each is assigned to; the person sees the full list beside your answer. Use it to find someone by name, role or assignment.",
+      "Search the contacts this person may see in the CRM — the same people their contact directory lists. Returns references (C1, C2…), names, roles, tags and who each is assigned to; the person sees the full list beside your answer. Use it to find someone by name, role or assignment.",
     input_schema: {
       type: 'object',
       additionalProperties: false,
       properties: {
         text: { type: 'string', description: 'Part of a name, email or phone number to search for. Omit to list recent contacts.' },
         role: { type: 'string', enum: [...CONTACT_ROLES], description: 'Only contacts with this role.' },
+        tag: { type: 'string', description: 'Only contacts with this tag (any case), e.g. Cold.' },
         assigned: { type: 'string', enum: ['me', 'any'], description: '"me" for only contacts assigned to this person. Default any.' },
         include_archived: { type: 'boolean', description: 'Also archived contacts. Default false.' },
         limit: { type: 'integer', description: 'How many to return, 1 to 20. Default 10.' },
@@ -229,7 +231,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
           properties: {
             kind: { type: 'string', enum: [...TRIGGER_KINDS] },
             source: { type: 'string', enum: ['website', 'manual', 'import'], description: 'lead.created: website or manual; contact.created: manual or import. Optional.' },
-            lead_status: { type: 'string', enum: ['new', 'contacted', 'qualified', 'closed'], description: 'Required for lead.status_changed.' },
+            lead_status: { type: 'string', enum: [...LEAD_STATUSES], description: 'Required for lead.status_changed.' },
             listing_status: { type: 'string', enum: ['live', 'under_offer', 'sold', 'withdrawn'], description: 'Required for listing.status_changed.' },
             days: { type: 'integer', description: 'lead.no_reply: 1 to 14, or use hours for the 6-hour wait. Required for appraisal.not_listed (1 to 30).' },
             appointment_type: { type: 'string', enum: ['appraisal', 'phone_call', 'zoom', 'inspection', 'meeting'], description: 'appointment.booked, appointment.completed and appointment.upcoming, optional.' },
@@ -288,7 +290,7 @@ export const ASSISTANT_TOOLS: readonly Anthropic.Beta.BetaTool[] = Object.freeze
   },
   {
     name: 'create_template',
-    description: `Propose a new email template, written for the person: a name, a subject and a plain-text body in their voice, no sign-off (the agency's details and an unsubscribe link are added). Only facts the person gave you — never invent a price, date, address or other figure; ask first. Merge fields: {{first_name}}, {{full_name}}, {{agent_name}}, {{agency_name}} — no others. The card shows the exact words; on approval it is saved and ready (an owner's or admin's for the whole agency, an agent's for themselves) and nothing is sent. To use it in a workflow, after approval call list_templates for its T reference. ${PROPOSES}`,
+    description: `Propose a new email template, written for the person: a name, a subject and a plain-text body in their voice, no sign-off (the agency's details and an unsubscribe link are added). Only facts the person gave you — never invent a price, date, address or other figure; ask first. Merge fields: {{first_name}}, {{full_name}}, {{agent_name}}, {{agency_name}}, and {{booking_link}} (the booking page of the contact's own agent; someone whose agent has none is skipped) — no others. The card shows the exact words; on approval it is saved and ready (an owner's or admin's for the whole agency, an agent's for themselves) and nothing is sent. To use it in a workflow, after approval call list_templates for its T reference. ${PROPOSES}`,
     input_schema: {
       type: 'object',
       additionalProperties: false,

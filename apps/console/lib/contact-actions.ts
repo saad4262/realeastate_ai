@@ -20,7 +20,9 @@ import {
   setContactArchived,
   setNextAction,
   summarizeContact,
+  tagContact,
   unlinkContactProperty,
+  untagContact,
   updateBuyerRequirement,
   updateContact,
   updateNote,
@@ -176,6 +178,19 @@ export async function setArchivedAction(contactId: string, archived: boolean): P
     return { ok: true };
   } catch (err) {
     return simpleFailure(err, archived ? 'Could not archive the contact' : 'Could not restore the contact');
+  }
+}
+
+/** ADR 0107: put a tag on the contact, or take one off. Whoever may edit the contact — decided in core. */
+export async function tagContactAction(contactId: string, tag: string, on: boolean): Promise<SimpleResult> {
+  const who = await actor();
+  try {
+    if (on) await tagContact(getConsoleDb(), who, contactId, tag);
+    else await untagContact(getConsoleDb(), who, contactId, tag);
+    refresh(contactId);
+    return { ok: true };
+  } catch (err) {
+    return simpleFailure(err, on ? 'Could not add the tag' : 'Could not remove the tag');
   }
 }
 

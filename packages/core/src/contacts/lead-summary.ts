@@ -15,6 +15,7 @@ export type ContactLeadSummary = {
   new: number;
   contacted: number;
   qualified: number;
+  nurture: number;
   closed: number;
   byKind: { enquiry: number; inspection: number; appraisal: number; offer: number };
   bySource: { source: string; count: number }[];
@@ -51,6 +52,7 @@ export async function contactLeadSummary(db: Db, actor: Actor, c: ReadableContac
       (select count(*) from l where status = 'new') as new,
       (select count(*) from l where status = 'contacted') as contacted,
       (select count(*) from l where status = 'qualified') as qualified,
+      (select count(*) from l where status = 'nurture') as nurture,
       (select count(*) from l where status = 'closed') as closed,
       (select count(*) from l where kind = 'enquiry') as enquiry,
       (select count(*) from l where kind = 'inspection') as inspection,
@@ -72,6 +74,7 @@ export async function contactLeadSummary(db: Db, actor: Actor, c: ReadableContac
     new: n(r?.new),
     contacted: n(r?.contacted),
     qualified: n(r?.qualified),
+    nurture: n(r?.nurture),
     closed: n(r?.closed),
     byKind: { enquiry: n(r?.enquiry), inspection: n(r?.inspection), appraisal: n(r?.appraisal), offer: n(r?.offer) },
     bySource: sources,

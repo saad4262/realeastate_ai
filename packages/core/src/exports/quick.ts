@@ -45,6 +45,8 @@ export const EXPORT_PAGE = 1000;
 export const CONTACT_EXPORT_HEADERS = [
   ...CONTACT_IMPORT_FIELDS.filter((f) => !['first_name', 'last_name', 'note'].includes(f)),
   'id', 'source', 'archived', 'created_at',
+  // ADR 0107: last, so files read by the import's mapping keep their columns.
+  'tags',
 ] as const;
 export const LISTING_EXPORT_HEADERS = [...IMPORT_FIELDS, 'id', 'created_at'] as const;
 export const LEAD_EXPORT_HEADERS = ['kind', 'status', 'name', 'email', 'phone', 'message', 'offer_amount', 'address', 'suburb', 'state', 'postcode', 'listing_id', 'assigned_email', 'ai_intent', 'ai_urgency', 'id', 'contact_id', 'created_at'] as const;
@@ -82,7 +84,7 @@ const SPECS: Record<QuickDataset, Spec> = {
     prepare: (db, actor, query, tz) => {
       // The directory's own schema: what it drops, the export drops.
       const q = contactListQuerySchema.parse(Object.fromEntries(Object.entries(query).map(([k, v]) => [k, first(v) || undefined])));
-      return { filters: (['q', 'role', 'source', 'assigned', 'archived'] as const).filter((k) => q[k] !== undefined), page: (after) => contactPage(db, actor, q, tz, after) };
+      return { filters: (['q', 'role', 'tag', 'source', 'assigned', 'archived'] as const).filter((k) => q[k] !== undefined), page: (after) => contactPage(db, actor, q, tz, after) };
     },
   },
   listings: {
@@ -210,6 +212,7 @@ async function contactPage(db: Db, actor: Actor, query: z.infer<typeof contactLi
       source: contact.source,
       archivedAt: contact.archivedAt,
       createdAt: contact.createdAt,
+      tags: contact.tags,
     })
     .from(contact)
     .leftJoin(assignee, eq(assignee.id, contact.assignedTo))
@@ -222,6 +225,7 @@ async function contactPage(db: Db, actor: Actor, query: z.infer<typeof contactLi
       r.name, r.email, r.phone, r.addressLine, r.suburb, r.state, r.postcode,
       roleArray(r.roles).join(', '), r.assignedEmail, r.nextAction, day(r.nextActionAt, tz),
       r.id, r.source, r.archivedAt ? 'yes' : '', iso(r.createdAt),
+      (r.tags ?? []).join(', '),
     ]),
   }));
 }

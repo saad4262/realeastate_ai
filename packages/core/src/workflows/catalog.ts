@@ -29,7 +29,8 @@ export const TRIGGER_KINDS = [
 ] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
-const LEAD_STATUSES = ['new', 'contacted', 'qualified', 'closed'] as const;
+/** The lead stages, as `lead_status` has them (a test holds them equal; this file stays free of the database). ADR 0107 added Nurture. */
+export const LEAD_STATUSES = ['new', 'contacted', 'qualified', 'nurture', 'closed'] as const;
 const LISTING_STATUSES = ['live', 'under_offer', 'sold', 'withdrawn'] as const;
 const APPOINTMENT_TYPES = ['appraisal', 'phone_call', 'zoom', 'inspection', 'meeting'] as const;
 /** The deal pipeline's seven stages (ADR 0063), repeated so this file stays pure data. */
@@ -176,6 +177,10 @@ export const ACTION_TYPES = [
   'assign_lead',
   'assign_contact',
   'message_colleagues',
+  // ADR 0107: the lead and the contact to the next of a list of members, in turn; the agent this run gave it to, told; a free tag.
+  'assign_in_turn',
+  'message_assigned_agent',
+  'tag_contact',
   'send_template_email',
   // ADR 0074 part 2: an SMS template, sent by itself — behind the pair skill "Workflow texts" and the five SMS rules.
   'send_template_sms',
@@ -203,6 +208,9 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('assign_lead'), to: uuid }).strict(),
   z.object({ type: z.literal('assign_contact'), to: uuid }).strict(),
   z.object({ type: z.literal('message_colleagues'), to: z.array(uuid).min(1).max(10), subject: text(200), body: text(2000) }).strict(),
+  z.object({ type: z.literal('assign_in_turn'), among: z.array(uuid).min(2).max(20).refine((m) => new Set(m).size === m.length, 'each member once') }).strict(),
+  z.object({ type: z.literal('message_assigned_agent'), subject: text(200), body: text(2000) }).strict(),
+  z.object({ type: z.literal('tag_contact'), tag: text(30) }).strict(),
   z.object({ type: z.literal('send_template_email'), template_id: uuid }).strict(),
   z.object({ type: z.literal('send_template_sms'), template_id: uuid }).strict(),
   /** What the AI should write about — the person's instructions. The email is a DRAFT for the owner (D1). */
@@ -223,6 +231,9 @@ export const ACTION_NEEDS: Record<ActionType, 'lead' | 'contact' | null> = {
   assign_lead: 'lead',
   assign_contact: 'contact',
   message_colleagues: null,
+  assign_in_turn: 'contact',
+  message_assigned_agent: null,
+  tag_contact: 'contact',
   send_template_email: 'contact',
   send_template_sms: 'contact',
   draft_email: 'contact',
@@ -232,7 +243,7 @@ export const ACTION_NEEDS: Record<ActionType, 'lead' | 'contact' | null> = {
 };
 
 /** Actions only an agency-wide workflow may have (D2: assigning is an admin's). */
-export const AGENCY_ONLY_ACTIONS: readonly ActionType[] = ['assign_lead', 'assign_contact'];
+export const AGENCY_ONLY_ACTIONS: readonly ActionType[] = ['assign_lead', 'assign_contact', 'assign_in_turn'];
 
 /** Actions that reach a contact. `send_template_email` sends by itself (an approved template, D1); `draft_email` never does. */
 export const REACHES_CONTACT: readonly ActionType[] = ['send_template_email', 'send_template_sms', 'draft_email'];
@@ -389,6 +400,9 @@ export const ACTION_WORDS: Record<ActionType, string> = {
   assign_lead: 'give the lead to',
   assign_contact: 'give the contact to',
   message_colleagues: 'message colleagues',
+  assign_in_turn: 'give the lead and the contact to the next agent, in turn',
+  message_assigned_agent: 'message the agent it was given to',
+  tag_contact: 'tag the contact',
   send_template_email: 'send an email template',
   send_template_sms: 'send an SMS template',
   draft_email: 'write an email draft for you to approve',
@@ -543,13 +557,19 @@ export function actionInWords(a: WorkflowAction, names: Record<string, string> =
     case 'remind_owner':
       return `Remind you: “${a.text}”${a.mail_me ? ' (also by email)' : ''}`;
     case 'set_lead_status':
-      return `Mark the lead ${STATUS(a.to)}`;
+      return a.to === 'nurture' ? 'Move the lead to Nurture' : `Mark the lead ${STATUS(a.to)}`;
     case 'assign_lead':
       return `Give the lead to ${names[a.to] ?? 'a team member'}`;
     case 'assign_contact':
       return `Give the contact to ${names[a.to] ?? 'a team member'}`;
     case 'message_colleagues':
       return `Message ${a.to.map((id) => names[id] ?? 'a colleague').join(', ')}: “${a.subject}”`;
+    case 'assign_in_turn':
+      return `Give the lead and the contact to the next of ${a.among.map((id) => names[id] ?? 'a team member').join(', ')}, in turn`;
+    case 'message_assigned_agent':
+      return `Message the agent it was given to: “${a.subject}”`;
+    case 'tag_contact':
+      return `Tag the contact “${a.tag}”`;
     case 'send_template_email':
       return `Send the template “${names[a.template_id] ?? 'template'}” to the contact (only if they may receive it then)`;
     case 'send_template_sms':

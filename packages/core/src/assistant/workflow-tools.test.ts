@@ -82,3 +82,37 @@ describe('specFrom — ADR 0048', () => {
     expect(specFrom(ctx, { ...base, actions: [{ type: 'wait_until' }, { type: 'remind_owner', text: 'x' }] })).toEqual({ problem: 'action 1 (wait_until) needs time' });
   });
 });
+
+describe('ADR 0107: the model’s steps for in turn, the agent told, a tag', () => {
+  const M2 = '33333333-3333-4333-8333-333333333333';
+  const handles: HandleMap = {};
+  const m1 = issueHandle(handles, 'M', M);
+  const m2 = issueHandle(handles, 'M', M2);
+  const build = (actions: unknown[]) => specFrom({ handles }, { name: 'W', scope: 'agency', trigger: { kind: 'lead.created' }, conditions: [], actions } as never);
+
+  it('become assign_in_turn with the members’ ids, message_assigned_agent, tag_contact', () => {
+    const out = build([
+      { type: 'assign_in_turn', members: [m1, m2] },
+      { type: 'message_assigned_agent', subject: 'New lead', body: 'Yours' },
+      { type: 'tag_contact', tag: 'Cold' },
+      { type: 'set_lead_status', lead_status: 'nurture' },
+    ]);
+    expect(out).toMatchObject({
+      spec: {
+        actions: [
+          { type: 'assign_in_turn', among: [M, M2] },
+          { type: 'message_assigned_agent', subject: 'New lead', body: 'Yours' },
+          { type: 'tag_contact', tag: 'Cold' },
+          { type: 'set_lead_status', to: 'nurture' },
+        ],
+      },
+    });
+  });
+
+  it('say what is missing: two members, a subject and body, the tag', () => {
+    expect(build([{ type: 'assign_in_turn', members: [m1] }])).toMatchObject({ problem: expect.stringMatching(/2 to 20 M references/) });
+    expect(build([{ type: 'assign_in_turn', members: [m1, 'M9'] }])).toMatchObject({ problem: expect.stringMatching(/assign_in_turn/) });
+    expect(build([{ type: 'message_assigned_agent', subject: 'x' }])).toMatchObject({ problem: expect.stringMatching(/needs body/) });
+    expect(build([{ type: 'tag_contact' }])).toMatchObject({ problem: expect.stringMatching(/needs tag/) });
+  });
+});

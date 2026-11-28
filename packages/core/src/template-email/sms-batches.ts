@@ -34,11 +34,11 @@ import {
   textsFromNumberToday,
   type SmsSkipReason,
 } from '../phone/sms-rules';
-import { BATCH_TTL_MS, listingFieldsUsed, renderMerge } from './schema';
+import { BATCH_TTL_MS, listingFieldsUsed, renderMerge, usesBookingLink } from './schema';
 import { listingSnapshotFor } from './listing-values';
 import { mayUseTemplate, TemplateEmailError } from './templates';
 import { hasMarketingConsentSql } from './consent';
-import { mergeValuesFor, MAX_PICKED_CONTACTS, type FilterSnapshot, type TemplateSnapshot } from './batches';
+import { bookingLinkSql, mergeValuesFor, MAX_PICKED_CONTACTS, type FilterSnapshot, type TemplateSnapshot } from './batches';
 import { withStopFooter } from './sms';
 
 /**
@@ -109,6 +109,7 @@ export async function classifySmsRecipients(db: DbOrTx, actor: Actor, input: Sms
     throw new TemplateEmailError('invalid', `“${tpl.name}” uses listing details (${uses.map((f) => `{{${f}}}`).join(', ')}), so it can only be sent from a listing’s Matching buyers tab.`);
   }
   const listingSnap = input.listingId ? await listingSnapshotFor(db, actor, input.listingId, uses) : null;
+  const needsBooking = usesBookingLink(tpl.body);
   const picked = 'contactIds' in input ? [...new Set(input.contactIds)] : null;
   let filter: { id: string; name: string; query: unknown } | null = null;
   if (picked) {
@@ -138,6 +139,7 @@ export async function classifySmsRecipients(db: DbOrTx, actor: Actor, input: Sms
         archivedAt: contact.archivedAt,
         optOutAt: contact.emailOptOutAt,
         consent: hasMarketingConsentSql(),
+        bookingUrl: needsBooking ? bookingLinkSql(actor.userId) : sql<string | null>`null`,
       })
       .from(contact)
       .where(and(...contactQueryFilters(actor, { ...query, archived: 'all' }, seesAll), ...(picked ? [inArray(contact.id, picked)] : [])))
@@ -164,6 +166,7 @@ export async function classifySmsRecipients(db: DbOrTx, actor: Actor, input: Sms
       hasFromNumber: Boolean(from),
     });
     if (!reason && allowed && !allowed(mobile!)) reason = 'dev_allowlist';
+    if (!reason && needsBooking && !r.bookingUrl) reason = 'no_booking_link';
     if (!reason) {
       if (toSend >= (input.maxPeople ?? SMS_BATCH_MAX)) reason = 'batch_limit';
       else toSend += 1;
@@ -312,6 +315,7 @@ export async function sendSmsBatch(db: Db, deps: SmsSendDeps, batchId: string, n
   const kind: (typeof AUTO_TEXT_KINDS)[number] | typeof BULK_TEXT_KIND = auto ? 'workflow_sms' : BULK_TEXT_KIND;
   const tpl = batch.templateSnapshot as TemplateSnapshot;
   const values = await mergeValuesFor(db, batch);
+  const needsBooking = usesBookingLink(tpl.body);
   const env = deps.env ?? process.env;
   const allowed = smsDevAllowlist(env);
   const skillOn = new Map<string, boolean>();
@@ -327,7 +331,7 @@ export async function sendSmsBatch(db: Db, deps: SmsSendDeps, batchId: string, n
 
     // The moment of sending: the contact, the number and the counts as they are NOW.
     const [c] = await db
-      .select({ phone: contact.phone, archivedAt: contact.archivedAt, mergedIntoId: contact.mergedIntoId, optOutAt: contact.emailOptOutAt, consent: hasMarketingConsentSql() })
+      .select({ phone: contact.phone, archivedAt: contact.archivedAt, mergedIntoId: contact.mergedIntoId, optOutAt: contact.emailOptOutAt, consent: hasMarketingConsentSql(), bookingUrl: needsBooking ? bookingLinkSql(batch.userId) : sql<string | null>`null` })
       .from(contact)
       .where(eq(contact.id, r.contact_id))
       .limit(1);
@@ -339,6 +343,7 @@ export async function sendSmsBatch(db: Db, deps: SmsSendDeps, batchId: string, n
       : smsSkipReason({ archived: Boolean(c.archivedAt || c.mergedIntoId), optedOut: Boolean(c.optOutAt), smsOptedOut: stopped, consent: truthy(c.consent), mobile, hasFromNumber: Boolean(from) });
     if (!reason && mobile !== r.phone) reason = 'phone_changed';
     if (!reason && allowed && !allowed(r.phone!)) reason = 'dev_allowlist';
+    if (!reason && needsBooking && !c?.bookingUrl) reason = 'no_booking_link';
     if (!reason && !r.sms_message_id && (await textsFromNumberToday(db, from!.id)) >= rules.perNumber) reason = 'daily_limit';
     if (!reason && auto) {
       // The pair skill (ADR 0069 §4): the agency's switch AND the switch of the agent whose number sends it.
@@ -359,7 +364,7 @@ export async function sendSmsBatch(db: Db, deps: SmsSendDeps, batchId: string, n
         await db.update(smsMessage).set({ status: 'queued', error: null, updatedAt: sql`now()` }).where(and(eq(smsMessage.id, messageId), eq(smsMessage.status, 'failed')));
       } else {
         messageId = randomUUID();
-        const body = withStopFooter(renderMerge(tpl.body, values(r.name)));
+        const body = withStopFooter(renderMerge(tpl.body, values(r.name, c?.bookingUrl)));
         await db.transaction(async (tx) => {
           await tx.insert(smsMessage).values({ id: messageId!, agencyId: batch.agencyId, phoneNumberId: from!.id, counterpart: r.phone!, contactId: r.contact_id, direction: 'out', body, status: 'queued', sentBy: batch.userId, kind });
           await tx.update(emailBatchRecipient).set({ smsMessageId: messageId, updatedAt: sql`now()` }).where(eq(emailBatchRecipient.id, r.id));

@@ -31,6 +31,15 @@ export const CONTACT_PROPERTY_RELATIONS = [
 ] as const;
 export type ContactPropertyRelation = (typeof CONTACT_PROPERTY_RELATIONS)[number];
 
+/** ADR 0107: a contact's free tags — 1 to 30 characters each, at most 20, each once whatever its case. */
+export const CONTACT_TAG_LIMITS = { chars: 30, perContact: 20 } as const;
+
+/** A tag as typed, with its spaces tidied; null when it is empty or too long. Pure. */
+export function tidyTag(raw: string): string | null {
+  const t = raw.trim().replace(/\s+/g, ' ');
+  return t.length >= 1 && t.length <= CONTACT_TAG_LIMITS.chars ? t : null;
+}
+
 /**
  * What `activity.kind` may say. Text in the database, checked here, so adding
  * a kind is a code change rather than an enum migration.
@@ -42,6 +51,9 @@ export const ACTIVITY_KINDS = [
   'contact_merged',
   'role_added',
   'role_removed',
+  // ADR 0107: a free tag put on or taken off, by hand or by a workflow.
+  'tag_added',
+  'tag_removed',
   'consent_recorded',
   'consent_withdrawn',
   'contact_archived',
@@ -132,6 +144,8 @@ export const ACTIVITY_LABELS: Record<ActivityKind, string> = {
   contact_merged: 'Merged with a duplicate',
   role_added: 'Role added',
   role_removed: 'Role removed',
+  tag_added: 'Tag added',
+  tag_removed: 'Tag removed',
   consent_recorded: 'Marketing consent recorded',
   consent_withdrawn: 'Marketing consent withdrawn',
   contact_archived: 'Archived',
@@ -301,6 +315,8 @@ export const CONTACT_PAGE_SIZE = 25;
 export const contactListQuerySchema = z.object({
   q: z.string().trim().max(120).optional().catch(undefined),
   role: z.enum(CONTACT_ROLES).optional().catch(undefined),
+  /** ADR 0107: people with this tag, exactly as it is stored (the filter offers the agency's own tags). */
+  tag: z.string().trim().min(1).max(30).optional().catch(undefined),
   source: z.enum(CONTACT_SOURCES).optional().catch(undefined),
   /** `me`, `none`, or a member's id. Only an admin's directory offers others. */
   assigned: z

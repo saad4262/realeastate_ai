@@ -1,6 +1,6 @@
 import { and, asc, eq, gt, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import { SUSPENDED_AGENCY_IDS } from '../platform/access';
-import { agency, assistantTask, notification, proposedAction, workflow, workflowEvent, workflowRun, type Db } from '@repo/db';
+import { agency, assistantTask, membership, notification, proposedAction, workflow, workflowEvent, workflowRun, type Db } from '@repo/db';
 import { can, type Actor } from '../permissions';
 import { activeMemberActor } from '../team/member-actor';
 import { isSkillOn } from '../skill-switches/switches';
@@ -286,10 +286,33 @@ type Step = { tool: FrozenArgs['tool']; args: FrozenArgs & { gapHours?: number; 
  * The run's steps, in order — record ids from the facts, texts with their merge fields filled. A `wait`
  * is the next step's gap; a `wait_until` its window, on the agency's clock (`timeZone`, frozen here).
  */
-export function stepsFor(wf: { name: string }, spec: WorkflowSpec, f: Facts, merge: MergeValues, now: Date, timeZone: string, names: Record<string, string> = {}): Step[] | { problem: string } {
+export function stepsFor(
+  wf: { name: string },
+  spec: WorkflowSpec,
+  f: Facts,
+  merge: MergeValues,
+  now: Date,
+  timeZone: string,
+  names: Record<string, string> = {},
+  /** ADR 0107: the member this run's `assign_in_turn` gives it to (taken in the run's transaction); null when none is left. */
+  inTurn: string | null = null,
+): Step[] | { problem: string } {
   const steps: Step[] = [];
   let gap = 0;
   let window: SendWindow | null = null;
+  // ADR 0107: who an earlier step of this run gave it to — the agent `message_assigned_agent` tells.
+  let given: string | null = null;
+  // A step's wait and window belong to the first step it makes.
+  const push = (args: FrozenArgs, title: string, touches: boolean) => {
+    steps.push({
+      tool: args.tool,
+      args: { ...args, ...(gap > 0 ? { gapHours: gap } : {}), ...(window ? { window } : {}) },
+      card: { title: renderMerge(title, merge), contact: { id: f.contactId ?? '', name: f.contactName ?? '' }, lines: [{ label: 'Workflow', value: wf.name }], notes: [] },
+      contactId: touches ? f.contactId : null,
+    });
+    gap = 0;
+    window = null;
+  };
   for (const a of spec.actions) {
     if (a.type === 'wait') {
       gap += a.hours;
@@ -321,10 +344,32 @@ export function stepsFor(wf: { name: string }, spec: WorkflowSpec, f: Facts, mer
       case 'assign_lead':
         if (!f.leadId) return { problem: 'the lead is gone' };
         args = { tool: 'assign_lead', leadId: f.leadId, to: a.to, from: f.leadAssignee };
+        given = a.to;
         break;
       case 'assign_contact':
         if (needContact()) return { problem: needContact()! };
         args = { tool: 'assign_contacts', to: a.to, contactIds: [contactId!], from: { [contactId!]: f.contactAssignee } };
+        given = a.to;
+        break;
+      case 'assign_in_turn': {
+        if (needContact()) return { problem: needContact()! };
+        if (!inTurn) return { problem: 'none of the members it gives leads to in turn is still in the agency' };
+        const who = names[inTurn] ?? 'the next agent';
+        // The lead (if the run has one) and the contact, to the same member: they see the person, texts go from their number.
+        if (f.leadId) push({ tool: 'assign_lead', leadId: f.leadId, to: inTurn, from: f.leadAssignee }, `Give the lead to ${who}, in turn`, false);
+        push({ tool: 'assign_contacts', to: inTurn, contactIds: [contactId!], from: { [contactId!]: f.contactAssignee } }, `Give the contact to ${who}, in turn`, true);
+        given = inTurn;
+        continue;
+      }
+      case 'message_assigned_agent': {
+        const to = given ?? f.leadAssignee ?? f.contactAssignee;
+        if (!to) return { problem: 'nobody has been given it yet, so there is no agent to message' };
+        push({ tool: 'message_colleagues', to: [to], subject: renderMerge(a.subject, merge), body: renderMerge(a.body, merge) }, `Message ${names[to] ?? 'the agent it was given to'}: “${a.subject}”`, false);
+        continue;
+      }
+      case 'tag_contact':
+        if (needContact()) return { problem: needContact()! };
+        args = { tool: 'tag_contact', contactId: contactId!, tag: a.tag };
         break;
       case 'message_colleagues':
         args = { tool: 'message_colleagues', to: a.to, subject: renderMerge(a.subject, merge), body: renderMerge(a.body, merge) };
@@ -349,18 +394,26 @@ export function stepsFor(wf: { name: string }, spec: WorkflowSpec, f: Facts, mer
         args = { tool: 'propose_ai_brief', leadId: f.leadId, workflowName: wf.name };
         break;
     }
-    steps.push({
-      tool: args.tool,
-      args: { ...args, ...(gap > 0 ? { gapHours: gap } : {}), ...(window ? { window } : {}) },
-      card: { title: renderMerge(actionInWords(a, names), merge), contact: { id: contactId ?? '', name: f.contactName ?? '' }, lines: [{ label: 'Workflow', value: wf.name }], notes: [] },
-      contactId: ACTION_TOUCHES_CONTACT.has(a.type) ? contactId : null,
-    });
-    gap = 0;
-    window = null;
+    push(args, actionInWords(a, names), ACTION_TOUCHES_CONTACT.has(a.type));
   }
   return steps;
 }
-const ACTION_TOUCHES_CONTACT = new Set(['add_note', 'set_next_action', 'assign_contact', 'send_template_email', 'send_template_sms', 'draft_email', 'save_ai_brief']);
+const ACTION_TOUCHES_CONTACT = new Set(['add_note', 'set_next_action', 'assign_contact', 'tag_contact', 'send_template_email', 'send_template_sms', 'draft_email', 'save_ai_brief']);
+
+/** ADR 0107: the member whose turn `turn` (1 for the first run) is, among those still active. Pure. */
+export function pickInTurn(pool: readonly string[], turn: number): string | null {
+  return pool.length ? pool[(((turn - 1) % pool.length) + pool.length) % pool.length]! : null;
+}
+
+/** ADR 0107: of these members, the ones still active in the agency, in the list's order. One query. */
+async function activeInOrder(db: Db, agencyId: string, among: readonly string[]): Promise<string[]> {
+  const rows = await db
+    .select({ id: membership.userId })
+    .from(membership)
+    .where(and(eq(membership.agencyId, agencyId), eq(membership.status, 'active'), inArray(membership.userId, [...among])));
+  const active = new Set(rows.map((r) => r.id));
+  return among.filter((id) => active.has(id));
+}
 
 /** Claim a batch of unprocessed events (a short lease, so two ticks never take the same one). */
 async function claimEvents(db: Db, now: Date, limit: number): Promise<EventRow[]> {
@@ -565,7 +618,11 @@ async function runOne(db: Db, wf: WorkflowRow, ev: EventRow, facts: Facts, owner
     if (z?.tz) timeZone = z.tz;
   }
   // Each step's title names its template and people, as the card did — the run's panel shows it (ADR 0106 part 3).
-  let steps = stepsFor(wf, chosen, facts, merge, now, timeZone, await namesFor(db, wf.agencyId, chosen));
+  const names = await namesFor(db, wf.agencyId, chosen);
+  // ADR 0107: the in-turn members still in the agency, in the list's order; the turn itself is taken in the run's transaction.
+  const turnStep = chosen.actions.find((a) => a.type === 'assign_in_turn');
+  const pool = turnStep?.type === 'assign_in_turn' ? await activeInOrder(db, wf.agencyId, turnStep.among) : [];
+  let steps = stepsFor(wf, chosen, facts, merge, now, timeZone, names, pool[0] ?? null);
   // A step that reaches a contact runs only while its owner has that skill switched on (ADR 0058, 0069).
   if (!('problem' in steps)) {
     for (const key of new Set(chosen.actions.map((a) => SKILL_OF_WORKFLOW_STEP[a.type]).filter((k) => k !== undefined))) {
@@ -587,6 +644,12 @@ async function runOne(db: Db, wf: WorkflowRow, ev: EventRow, facts: Facts, owner
       .returning({ id: workflowRun.id });
     if (!run) return 'no' as const; // this event already ran for this workflow
     if ('problem' in steps) return 'skipped' as const;
+    if (turnStep) {
+      // One guarded increment: two runs at once never take the same turn.
+      const [t] = await tx.update(workflow).set({ turn: sql`${workflow.turn} + 1` }).where(eq(workflow.id, wf.id)).returning({ turn: workflow.turn });
+      steps = stepsFor(wf, chosen, facts, merge, now, timeZone, names, pickInTurn(pool, t!.turn));
+      if ('problem' in steps) return 'skipped' as const;
+    }
     const endsAt = new Date(now.getTime() + 30 * DAY_MS);
     const [task] = await tx
       .insert(assistantTask)
