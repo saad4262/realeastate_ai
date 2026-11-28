@@ -350,7 +350,8 @@ export function runSteps(rows: readonly StepRow[]): Pick<WorkflowRunView, 'who' 
     who,
     steps: rows.map((s) => {
       const args = (s.args ?? {}) as { gapHours?: unknown; window?: unknown };
-      const time = s.finishedAt ?? (s.status === 'scheduled' || s.status === 'running' ? s.runAt : null);
+      // A skipped step shows no time, however it was stopped: its reason says what happened.
+      const time = s.status === 'cancelled' ? null : (s.finishedAt ?? (s.status === 'scheduled' || s.status === 'running' ? s.runAt : null));
       return {
         title: (s.card as { title?: string }).title ?? '',
         status: s.status,

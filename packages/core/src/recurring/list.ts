@@ -126,7 +126,8 @@ export async function listEveryAutomation(db: Db, actor: Actor): Promise<Automat
         note: w.pausedReason ?? (w.runsToday ? `${w.runsToday} today` : null),
         mine: w.mine,
         owner: w.mine ? null : w.ownerName,
-        lastAt: null,
+        // Its latest run, already in the list's one statement (ADR 0105): "1 today" never sits beside "Not run yet".
+        lastAt: iso(w.lastRun?.at),
         nextAt: null,
         canToggle: w.mayManage,
         canRun: false,

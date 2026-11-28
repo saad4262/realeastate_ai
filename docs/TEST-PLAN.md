@@ -2539,16 +2539,17 @@ Console Overview (`/overview` or the agent's `/assistant`), "Workflow emails" an
 ## DD — Workflows of up to 12 steps, and Stop on a run in flight (ADR 0106)
 
 Console, as an agency owner, "Workflow emails" and "Workflow texts" on. The engine side is in smoke ("Workflows: stop a run, 12 steps").
+On dev nothing runs the minute tick: a run starts and moves on only when the workflow part of the tick is run by hand (2026-11-28 run: `runLeadUnderstanding` → `runWorkflowTick` → `runScheduledActions`, never the whole tick, which would also run every other due job on dev).
 
 | # | Do | Expect |
 |---|---|---|
 | DD1 | AI Assistant: the 11-step new-lead prompt (assign to a named agent, message them, set Contacted, email, wait 2 h, text, wait 1 day, next action "Call", email, wait 3 days, remind me) | One card, Then 1 … Then 11; Approve saves it |
 | DD2 | Same with 13 steps | No card for 13: the assistant says the most is 12 and offers to shorten it |
 | DD3 | Record a lead by hand so DD1 runs; Skills → Automations → the workflow | The run in History has **Stop**; Stop → confirm → the run shows the rest skipped, "Stopped by hand…" |
-| DD4 | As an agent, open an owner's agency-wide workflow in the panel | No Stop on its runs |
+| DD4 | As an agent, open an owner's agency-wide workflow in the panel (`/my-skills?tab=automations&open=workflow:<id>`) | It does not open for them ("This automation is no longer available"), so no Stop; the owner sees Stop on the same run |
 | DD5 | Two leads running DD1; in the AI Assistant: "stop the new-lead automation" | A "Stop the workflow" card: After: Paused; Runs going: 2 … each stops; Approve → both runs stopped, the workflow paused |
 | DD6 | "Pause the new-lead automation" while a run is going | The card says the runs going carry on to the end |
 | DD7 | DD1 running for a lead "Sara Khan" (first email sent); open the chat's right panel → History | The run reads "Started · Sara Khan · <time>"; "1 steps done · N left"; "Next: Text … · <day, time>" 2 h after the email |
-| DD8 | Open "Each step" on that run | Email: Done · <time>; Text: Due · <time>; the rest "Waiting · 1 day after the step before" etc., in order; none with a made-up time |
+| DD8 | Open "Each step" on that run | Each step named as on the card (“Welcome”, “Liam Carter”, “Call Sara”); Email: Done · <time>; Text: Due · <time>; the rest "Waiting · 24 h after the step before", "Right after the step before", "3 days after the step before"; none with a made-up time |
 | DD9 | New chat on Overview: "pause the new-lead automation" (made in another chat), approve | The right panel shows the workflow itself (Off, its History), not a "Done in this chat" card; resume from the same chat → Active |
 | DD10 | Stop a run (DD3), then "Each step" | The steps not sent read "Skipped", with no time; the run says "Stopped by hand…" |

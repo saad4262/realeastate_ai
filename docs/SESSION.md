@@ -17,6 +17,12 @@ passes ~10 entries, move the older ones to a new archive file.
 - 2026-11-28, ADR 0106 part 3 (the user: the lead's name and each step's exact time are essential): the run in the chat's right
   panel names who it is for and every step's time (done at / due at; a step not yet due says how long after the one before);
   a workflow paused/stopped/resumed in a chat shows in that chat's panel. No migration. TEST-PLAN DD7–DD10.
+- 2026-11-28 browser run (the user asked: Playwright + live model + dev helpers, all of DB/DC/DD on Harbour Realty (TEST)):
+  every DB1–4, DC1–7, DD1–10 passed after 7 fixes (ADR 0106 part 3 list). Dev facts found: nothing ticks workflows on dev;
+  no TEST agency has Twilio (a text step fails there at its time); EMAIL_DEV_ALLOWLIST holds none of the test contacts; the
+  trial pool is $1/day across all trial agencies (hit after ~36 calls) — the run used its own console on :3013 with the trial
+  and per-person caps at $5 (the user's go). Spend ≈ $2. Harbour (TEST) keeps the test data: templates Welcome/Hi, contacts
+  Sara Khan + Ali Raza, 3 workflows (all paused), their leads and runs (one of Ali's still in flight, paused workflow).
 - Still on hold (the user): tags, a Nurture stage, round-robin assignment. Also not built: a notification or task for the agent a run assigned, and `{{agent_name}}` as that agent (it is the workflow owner's name).
 
 ## 2026-11-27 — Claude Code (Mac) — ADR 0104 agency data export LIVE

@@ -301,8 +301,8 @@ export async function proposeChangeWorkflow(ctx: ToolContext, input: z.infer<typ
       { label: 'Workflow', value: `${w.name} — ${w.words.when}` },
       { label: 'Now', value: now },
       { label: 'After', value: after },
-      ...(input.change === 'stop' ? [{ label: 'Runs going', value: going ? `${runsLine}: each stops, nothing more of it is sent` : 'None' }] : []),
-      ...(input.change === 'pause' && going ? [{ label: 'Runs going', value: `${runsLine}: they carry on to the end` }] : []),
+      ...(input.change === 'stop' ? [{ label: 'Runs going', value: going ? `${runsLine}: ${going === 1 ? 'it stops' : 'each stops'}, nothing more of it is sent` : 'None' }] : []),
+      ...(input.change === 'pause' && going ? [{ label: 'Runs going', value: `${runsLine}: ${going === 1 ? 'it carries' : 'they carry'} on to the end` }] : []),
     ],
     notes: [
       NOTHING_YET,

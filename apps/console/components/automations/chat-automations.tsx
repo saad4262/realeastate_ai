@@ -48,7 +48,7 @@ export function ChatAutomations({ conversationId, paths, version, initial }: { c
         </span>
         In this chat{made.length > 1 ? ` (${made.length})` : ''}
       </button>
-      <aside className={styles.side} data-open={open || undefined} aria-label="What this chat made or did">
+      <aside className={styles.side} data-open={open || undefined} data-chat-side aria-label="What this chat made or did">
         <div className={styles.sideHead}>
           {made.length > 1 ? (
             <div className={styles.tabs} role="tablist">

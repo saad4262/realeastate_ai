@@ -63,6 +63,13 @@ describe('listEveryAutomation', () => {
     expect(rows[0]!.what).toBe('Send the welcome, then Add a note');
   });
 
+  it('a workflow’s last run is its latest run’s time, so the card never says "Not run yet" beside "2 today"', async () => {
+    const at = new Date('2026-11-28T02:25:00Z');
+    listWorkflows.mockResolvedValue([flow({ lastRun: { at, words: 'stopped: they emailed or texted back' } }), flow({ id: 'w2', lastRun: null })]);
+    const rows = await listEveryAutomation(fake([], [], [], []).db, agent);
+    expect(rows.map((r) => r.lastAt)).toEqual([at.toISOString(), null]);
+  });
+
   it('a workflow sending both kinds belongs to neither skill; an archived one does not show', async () => {
     listWorkflows.mockResolvedValue([flow({ stepTypes: ['send_template_email', 'send_template_sms'] }), flow({ id: 'w2', status: 'archived' })]);
     const rows = await listEveryAutomation(fake([], [], []).db, agent);

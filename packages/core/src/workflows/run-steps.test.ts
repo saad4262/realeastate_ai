@@ -30,8 +30,8 @@ describe('runSteps', () => {
   });
 
   it('a skipped step is never shown at the time it would have gone', () => {
-    const { steps } = runSteps([step({ status: 'cancelled', runAt: DUE, error: 'Stopped by hand' })]);
-    expect(steps[0]!.at).toBeNull();
+    const { steps } = runSteps([step({ status: 'cancelled', runAt: DUE, error: 'Stopped by hand' }), step({ status: 'cancelled', runAt: DUE, finishedAt: DONE, error: 'Stopped: they emailed or texted back' })]);
+    expect(steps.map((s) => s.at)).toEqual([null, null]);
     expect(runSteps([step({ status: 'running', runAt: DUE })]).steps[0]!.at).toEqual(DUE);
   });
 });

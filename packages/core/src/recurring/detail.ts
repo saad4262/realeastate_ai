@@ -52,8 +52,11 @@ export async function automationDetail(db: Db, actor: Actor, key: string): Promi
         const n = (...st: string[]) => r.steps.filter((s) => st.includes(s.status)).length;
         // A cancelled step will never run (a reply stopped it, ADR 0103, or a step before it failed): skipped, not remaining.
         const stopped = r.steps.find((s) => s.status === 'cancelled' && s.error)?.error ?? null;
-        const steps = r.steps.map((s) => ({ title: s.title, status: s.status, at: iso(s.at), error: s.error, after: s.status === 'blocked' ? stepAfterWords(s.waitHours, s.window) : null }));
-        return { id: r.id, status: r.status, at: r.at.toISOString(), finishedAt: null, total: r.steps.length, sent: n('done'), failed: n('failed'), skipped: n('cancelled'), remaining: n('blocked', 'scheduled', 'running'), detail: r.error ?? stopped, manual: false, canStop: row.canToggle && n('blocked', 'scheduled') > 0, who: r.who, steps };
+        // The run's line already says why it stopped: a skipped step does not repeat it.
+        const steps = r.steps.map((s) => ({ title: s.title, status: s.status, at: iso(s.at), error: s.status === 'cancelled' && s.error === (r.error ?? stopped) ? null : s.error, after: s.status === 'blocked' ? stepAfterWords(s.waitHours, s.window) : null }));
+        // The run row only says it started (or was skipped/failed before any step); how it went is in its steps.
+        const status = r.status !== 'started' || !r.steps.length ? r.status : n('blocked', 'scheduled', 'running') ? 'running' : n('failed') ? 'failed' : n('cancelled') ? 'stopped' : 'done';
+        return { id: r.id, status, at: r.at.toISOString(), finishedAt: null, total: r.steps.length, sent: n('done'), failed: n('failed'), skipped: n('cancelled'), remaining: n('blocked', 'scheduled', 'running'), detail: r.error ?? stopped, manual: false, canStop: row.canToggle && n('blocked', 'scheduled') > 0, who: r.who, steps };
       }),
     };
   }

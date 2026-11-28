@@ -163,6 +163,12 @@ describe('stepsFor — the run’s steps', () => {
     expect(steps[1]!.args).toMatchObject({ templateId: T1, contactIds: ['contact-1'], gapHours: 24, part: { n: 1, of: 1 } });
     expect(steps[2]!.args).toEqual({ tool: 'draft_email', contactId: 'contact-1', instructions: 'Ask when they can inspect', workflowName: 'Welcome' });
   });
+  it('each step’s title names its template and people, as the card did, with its merge fields filled (ADR 0106 part 3)', () => {
+    const M = '22222222-2222-4222-8222-222222222222';
+    const steps = stepsFor({ name: 'W' }, { trigger: { kind: 'lead.created' }, conditions: [], actions: [{ type: 'send_template_email', template_id: T1 }, { type: 'message_colleagues', to: [M], subject: 'New lead', body: 'Yours' }, { type: 'remind_owner', text: 'Call {{contact_first_name}}', mail_me: false }] }, facts(), { contact_first_name: 'Sara' }, now, 'Australia/Sydney', { [T1]: 'Welcome', [M]: 'Liam Carter' });
+    if ('problem' in steps) throw new Error(steps.problem);
+    expect(steps.map((s) => s.card.title)).toEqual(['Send the template “Welcome” to the contact (only if they may receive it then)', 'Message Liam Carter: “New lead”', 'Remind you: “Call Sara”']);
+  });
   it('a step that needs a contact the record no longer has: the run is not made, and says why', () => {
     const out = stepsFor({ name: 'X' }, { trigger: { kind: 'lead.created' }, conditions: [], actions: [{ type: 'add_note', text: 'x' }] }, facts({ contactId: null }), {}, now, 'Australia/Sydney');
     expect(out).toEqual({ problem: 'the contact is archived, merged or gone' });

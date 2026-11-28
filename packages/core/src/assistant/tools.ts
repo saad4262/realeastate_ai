@@ -298,8 +298,10 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return findLeads(ctx, parsed.data as FindLeads, label);
     case 'find_appointments':
       return findAppointments(ctx, parsed.data as FindAppointments, label);
-    case 'list_templates':
-      return listApprovedTemplates(ctx, label, templateChannel(ctx.chatScope ?? null, (parsed.data as { channel?: 'email' | 'sms' }).channel));
+    case 'list_templates': {
+      const asked = (parsed.data as { channel?: 'email' | 'sms' }).channel;
+      return listApprovedTemplates(ctx, label, templateChannel(ctx.chatScope ?? null, asked), asked);
+    }
     case 'check_connections':
       return checkConnections(ctx, parsed.data as CheckConnections, label);
     case 'show_widget':
@@ -726,7 +728,7 @@ async function findAppointments(
   };
 }
 
-async function listApprovedTemplates(ctx: ToolContext, label: string, channel: 'email' | 'sms' = 'email'): Promise<ToolOutcome> {
+async function listApprovedTemplates(ctx: ToolContext, label: string, channel: 'email' | 'sms' = 'email', asked?: 'email' | 'sms'): Promise<ToolOutcome> {
   const { db, actor } = ctx;
   if (!can(actor, 'email_template:read', { type: 'email_template', agencyId: actor.agencyId as string })) {
     return refused('You do not have permission to view email templates.', label);
@@ -738,7 +740,14 @@ async function listApprovedTemplates(ctx: ToolContext, label: string, channel: '
   return {
     label,
     frame: { kind: 'templates', total: approved.length, rows: shown },
-    result: { note: DATA_NOTE, total: shown.length, templates: shown.map((t) => ({ ref: t.handle, name: t.name, subject: t.subject })) },
+    result: {
+      note: DATA_NOTE,
+      // A skill chat lists its own channel whatever was asked: say which, so an email template is never taken for an SMS one.
+      channel,
+      ...(asked && asked !== channel ? { not_listed: `This chat lists only ${channel} templates. ${asked === 'sms' ? 'SMS' : 'Email'} templates are not shown here, so none of these is one.` } : {}),
+      total: shown.length,
+      templates: shown.map((t) => ({ ref: t.handle, name: t.name, subject: t.subject })),
+    },
   };
 }
 

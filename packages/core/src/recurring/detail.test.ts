@@ -62,7 +62,15 @@ describe('automationDetail', () => {
     listEveryAutomation.mockResolvedValue([row({ key: `workflow:${ID}`, source: 'workflow' })]);
     workflowRuns.mockResolvedValue([{ id: 'w1', at: new Date(), status: 'started', error: null, decision: null, steps: [{ status: 'done' }, { status: 'scheduled' }, { status: 'failed' }] }]);
     const d = (await automationDetail({} as Db, agent, `workflow:${ID}`))!;
-    expect(d.runs[0]).toMatchObject({ total: 3, sent: 1, failed: 1, remaining: 1 });
+    expect(d.runs[0]).toMatchObject({ status: 'running', total: 3, sent: 1, failed: 1, remaining: 1 });
+  });
+
+  it('a run says how it went, from its steps: the run row only says it started (ADR 0106 part 3)', async () => {
+    listEveryAutomation.mockResolvedValue([row({ key: `workflow:${ID}`, source: 'workflow' })]);
+    const r = (id: string, status: string, ...st: string[]) => ({ id, at: new Date(), status, error: null, decision: null, who: null, steps: st.map((s) => ({ title: 'x', status: s, error: null, at: null, waitHours: 0, window: false })) });
+    workflowRuns.mockResolvedValue([r('a', 'started', 'done', 'done'), r('b', 'started', 'done', 'failed', 'cancelled'), r('c', 'started', 'done', 'cancelled'), r('d', 'skipped')]);
+    const d = (await automationDetail({} as Db, agent, `workflow:${ID}`))!;
+    expect(d.runs.map((x) => x.status)).toEqual(['done', 'failed', 'stopped', 'skipped']);
   });
 
   it('a workflow run still going has Stop for who may manage it, a finished one none (ADR 0106)', async () => {
@@ -84,7 +92,9 @@ describe('automationDetail', () => {
     const why = 'Stopped: they emailed or texted back, so nothing more of this run was sent.';
     workflowRuns.mockResolvedValue([{ id: 'w1', at: new Date(), status: 'started', error: null, decision: null, steps: [{ status: 'done', error: null }, { status: 'cancelled', error: why }, { status: 'cancelled', error: null }] }]);
     const d = (await automationDetail({} as Db, agent, `workflow:${ID}`))!;
-    expect(d.runs[0]).toMatchObject({ total: 3, sent: 1, failed: 0, skipped: 2, remaining: 0, detail: why });
+    expect(d.runs[0]).toMatchObject({ status: 'stopped', total: 3, sent: 1, failed: 0, skipped: 2, remaining: 0, detail: why });
+    // Said once, on the run — not again on each skipped step.
+    expect(d.runs[0]!.steps!.map((s) => s.error)).toEqual([null, null, null]);
   });
 
   it('a workflow run says who it is for, each step’s time, and how long a step not yet due waits (ADR 0106 part 3)', async () => {

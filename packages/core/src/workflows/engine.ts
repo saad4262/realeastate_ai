@@ -14,6 +14,7 @@ import { actionInWords, AI_CONDITION_FIELDS, isNear, NO_REPLY_HOURS, renderMerge
 import { windowFrom, type SendWindow } from './send-window';
 import { runTriggerScans, type ScanReport } from './scans';
 import { decideRun, stepsOfChoice, type RunDecision, type WorkflowDecider } from './decide';
+import { namesFor } from './manage';
 
 /**
  * The workflow engine (ADR 0041 Part B), run by the minute tick:
@@ -285,7 +286,7 @@ type Step = { tool: FrozenArgs['tool']; args: FrozenArgs & { gapHours?: number; 
  * The run's steps, in order — record ids from the facts, texts with their merge fields filled. A `wait`
  * is the next step's gap; a `wait_until` its window, on the agency's clock (`timeZone`, frozen here).
  */
-export function stepsFor(wf: { name: string }, spec: WorkflowSpec, f: Facts, merge: MergeValues, now: Date, timeZone: string): Step[] | { problem: string } {
+export function stepsFor(wf: { name: string }, spec: WorkflowSpec, f: Facts, merge: MergeValues, now: Date, timeZone: string, names: Record<string, string> = {}): Step[] | { problem: string } {
   const steps: Step[] = [];
   let gap = 0;
   let window: SendWindow | null = null;
@@ -351,7 +352,7 @@ export function stepsFor(wf: { name: string }, spec: WorkflowSpec, f: Facts, mer
     steps.push({
       tool: args.tool,
       args: { ...args, ...(gap > 0 ? { gapHours: gap } : {}), ...(window ? { window } : {}) },
-      card: { title: actionInWords(a), contact: { id: contactId ?? '', name: f.contactName ?? '' }, lines: [{ label: 'Workflow', value: wf.name }], notes: [] },
+      card: { title: renderMerge(actionInWords(a, names), merge), contact: { id: contactId ?? '', name: f.contactName ?? '' }, lines: [{ label: 'Workflow', value: wf.name }], notes: [] },
       contactId: ACTION_TOUCHES_CONTACT.has(a.type) ? contactId : null,
     });
     gap = 0;
@@ -563,7 +564,8 @@ async function runOne(db: Db, wf: WorkflowRow, ev: EventRow, facts: Facts, owner
     const [z] = await db.select({ tz: agency.timeZone }).from(agency).where(eq(agency.id, wf.agencyId)).limit(1);
     if (z?.tz) timeZone = z.tz;
   }
-  let steps = stepsFor(wf, chosen, facts, merge, now, timeZone);
+  // Each step's title names its template and people, as the card did — the run's panel shows it (ADR 0106 part 3).
+  let steps = stepsFor(wf, chosen, facts, merge, now, timeZone, await namesFor(db, wf.agencyId, chosen));
   // A step that reaches a contact runs only while its owner has that skill switched on (ADR 0058, 0069).
   if (!('problem' in steps)) {
     for (const key of new Set(chosen.actions.map((a) => SKILL_OF_WORKFLOW_STEP[a.type]).filter((k) => k !== undefined))) {
