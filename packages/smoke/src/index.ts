@@ -271,7 +271,8 @@ import {
 } from '@repo/core/assistant';
 import { assistantDeps, runAssistantTurn, type AssistantEvent } from '@repo/ai/assistant';
 import { DASHBOARD_EVALS } from '@repo/ai/evals/dashboard-phrases';
-import { listWaitingDrafts, runWorkflowTick, saveWorkflow, setWorkflowStatus } from '@repo/core/workflows';
+import { listWaitingDrafts, listWorkflows, runWorkflowTick, saveWorkflow, setWorkflowStatus, STOPPED_BY_HAND, STOPPED_BY_REPLY, stopWorkflowRun, stopWorkflowRuns } from '@repo/core/workflows';
+import { automationDetail } from '@repo/core/recurring';
 import { runDealSync } from '@repo/core/deals';
 import { isSkillOn, setSkillSwitch, skillsOffForActor } from '@repo/core/skill-switches';
 import { consumerSkillBlocks, listConsumerSkills, setConsumerSkill, usersWithConsumerSkillOff } from '@repo/core/consumer-skills';
@@ -7563,6 +7564,167 @@ async function main() {
       await runWorkflowTick(t, evening);
       assert((await runsOf(t, wf.id)).length === 3, 'turned on again but did not run');
       return 'template saved only on Approve (agency-wide); card reads "If Parramatta / Wait until the next 9:00 am / Sydney"; 8 pm lead → email due 09:00 next morning, not sent early; Bondi → no run; 5 km radius: Bondi no, Parramatta yes; paused → no run, on → runs';
+    }),
+  );
+
+  // ── ADR 0103: a reply stops the steps still to come ──────────────────────────────────────────
+  group('Workflows: stop on reply (ADR 0103)');
+
+  /** Two workflows on one new lead — one stops on a reply, one set to carry on — each: a reminder, an hour's wait, a reminder. */
+  async function replyFixture(t: Db) {
+    const steps = (n: string) => [{ type: 'remind_owner', text: `${n} first`, mail_me: false }, { type: 'wait', hours: 1 }, { type: 'remind_owner', text: `${n} second`, mail_me: false }];
+    const w = await workflowFixture(t, { trigger: { kind: 'lead.created', source: 'manual' }, conditions: [], actions: steps('Stops') });
+    await saveWorkflow(t, w.actor, { name: `Smoke carries on ${w.f.tag}`, scope: 'mine', spec: { trigger: { kind: 'lead.created', source: 'manual' }, conditions: [], actions: steps('Carries'), stop_on_reply: false } });
+    const lead = await createManualLead(t, w.actor, { contactId: w.f.contacts.p2, listingId: w.listingId, kind: 'enquiry', message: null });
+    const tick = await runWorkflowTick(t, new Date());
+    await runScheduledActions(t, {}, new Date());
+    assert(tick.runs === 2, `runs: ${JSON.stringify(tick)}`);
+    const bell = (text: string) => count(t, sql`select count(*)::int as n from notification where user_id = ${w.f.people.a1} and title = ${text}`);
+    assert((await bell('Stops first')) === 1 && (await bell('Carries first')) === 1, 'the first steps did not run');
+    const [th] = await t.execute<{ id: string }>(sql`select id from mail_thread where lead_id = ${lead.leadId}`);
+    const [num] = await t.execute<{ id: string }>(sql`
+      insert into phone_number (agency_id, user_id, e164, number_sid) values (${w.f.agencyId}, ${w.f.people.a1}, '+61480000103', ${`PNreply${w.f.tag}`}) returning id`);
+    // Inside one transaction now() never moves, so a message "after the run" is stamped a minute on.
+    const at = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
+    const mail = (direction: 'in' | 'out', when: string) =>
+      t.execute(sql`insert into mail_message (thread_id, agency_id, direction, status, from_email, subject, text, created_at)
+        values (${th!.id}, ${w.f.agencyId}, ${direction}, ${direction === 'in' ? 'received' : 'sent'}, 'p2@smoke.test', 'Re: your enquiry', 'Saturday works', ${when}::timestamptz)`);
+    const text = (when: string) =>
+      t.execute(sql`insert into sms_message (agency_id, phone_number_id, counterpart, contact_id, direction, body, status, created_at, updated_at)
+        values (${w.f.agencyId}, ${num!.id}, '+61400000002', ${w.f.contacts.p2}, 'in', 'Yes please', 'received', ${when}::timestamptz, ${when}::timestamptz)`);
+    const afterAnHour = async () => {
+      const report = await runScheduledActions(t, {}, new Date(Date.now() + 2 * 3_600_000));
+      const [run] = await runsOf(t, w.workflowId);
+      const [task] = await t.execute<{ status: string; error: string | null }>(sql`select status, error from assistant_task where id = ${run!.task_id}`);
+      const stepRows = await t.execute<{ status: string; error: string | null }>(sql`select status, error from proposed_action where task_id = ${run!.task_id} order by task_seq`);
+      return { report, task: task!, steps: stepRows, stopsSecond: await bell('Stops second'), carriesSecond: await bell('Carries second') };
+    };
+    return { w, at, mail, text, afterAnHour };
+  }
+  const assertStopped = (r: Awaited<ReturnType<Awaited<ReturnType<typeof replyFixture>>['afterAnHour']>>) => {
+    assert(r.stopsSecond === 0, 'the workflow that stops on a reply still ran its second step');
+    assert(r.carriesSecond === 1, 'the workflow set to carry on did not run its second step');
+    assert(r.report.stopped === 1, `report: ${JSON.stringify(r.report)}`);
+    assert(r.task.status === 'cancelled' && r.task.error === STOPPED_BY_REPLY, `task: ${JSON.stringify(r.task)}`);
+    assert(r.steps.map((s) => s.status).join() === 'done,cancelled' && r.steps[1]!.error === STOPPED_BY_REPLY, `steps: ${JSON.stringify(r.steps)}`);
+  };
+
+  await check('an email back on the lead’s conversation stops the rest of the run; a workflow set to carry on runs its next step', async () =>
+    inRollback(async (t) => {
+      const x = await replyFixture(t);
+      await x.mail('in', x.at(1));
+      assertStopped(await x.afterAnHour());
+      // ADR 0105: what the AI Assistant reports, read in the list's one statement.
+      const mine = (await listWorkflows(t, x.w.actor)).find((wf) => wf.id === x.w.workflowId);
+      assert(mine?.lastRun?.words === `stopped: ${STOPPED_BY_REPLY}`, `last run: ${JSON.stringify(mine?.lastRun)}`);
+      return 'email in → "Stops second" never rang, task and step cancelled "Stopped: they emailed or texted back…"; the carry-on workflow rang its second; find_workflows\' last run says "stopped: …"';
+    }),
+  );
+
+  await check('a text back from the contact stops it the same way', async () =>
+    inRollback(async (t) => {
+      const x = await replyFixture(t);
+      await x.text(x.at(1));
+      assertStopped(await x.afterAnHour());
+      return 'text in → stopped; the carry-on workflow ran its second step';
+    }),
+  );
+
+  await check('not replies: our own email out after the run, and a text from them before it — the run carries on', async () =>
+    inRollback(async (t) => {
+      const x = await replyFixture(t);
+      await x.mail('out', x.at(1));
+      await x.text(x.at(-60));
+      const r = await x.afterAnHour();
+      assert(r.report.stopped === 0 && r.stopsSecond === 1 && r.carriesSecond === 1, `stopped without a reply: ${JSON.stringify(r)}`);
+      return 'email out + an earlier text in → nothing stopped; both second steps rang';
+    }),
+  );
+
+  await check('ADR 0105: one workflow may email and then text — the server saves it, and lists both channels', async () =>
+    inRollback(async (t) => {
+      const w = await workflowFixture(t, { trigger: { kind: 'lead.created', source: 'manual' }, conditions: [], actions: [{ type: 'remind_owner', text: 'x', mail_me: false }] }, 'agency', 'owner');
+      const mail = await createEmailTemplate(t, w.actor, { channel: 'email', name: `Mixed mail ${w.f.tag}`, subject: 'Thanks', body: 'Hi {{first_name}}' });
+      const sms = await createEmailTemplate(t, w.actor, { channel: 'sms', name: `Mixed sms ${w.f.tag}`, body: 'Hi {{first_name}}' });
+      const spec = { trigger: { kind: 'lead.created', source: 'manual' }, conditions: [], actions: [{ type: 'send_template_email', template_id: mail.id }, { type: 'wait', hours: 2 }, { type: 'send_template_sms', template_id: sms.id }] };
+      const { id } = await saveWorkflow(t, w.actor, { name: `Smoke mixed ${w.f.tag}`, scope: 'agency', spec });
+      const listed = (await listWorkflows(t, w.actor)).find((wf) => wf.id === id);
+      assert(listed?.stepTypes.join() === 'send_template_email,wait,send_template_sms' && listed.lastRun === null, `listed: ${JSON.stringify(listed)}`);
+      return 'email → wait 2 h → text saved as one workflow; listed with both steps; last run: never';
+    }),
+  );
+
+  // ── ADR 0106: stopping a run in flight, and workflows of up to 12 steps ───────────────────────
+  group('Workflows: stop a run, 12 steps (ADR 0106)');
+
+  /** A1's workflow — a reminder, an hour's wait, a reminder — started for `leads` new leads, first steps run. */
+  async function runningFixture(t: Db, leads: number) {
+    const w = await workflowFixture(t, { trigger: { kind: 'lead.created', source: 'manual' }, conditions: [], actions: [{ type: 'remind_owner', text: 'Stop first', mail_me: false }, { type: 'wait', hours: 1 }, { type: 'remind_owner', text: 'Stop second', mail_me: false }] });
+    const contacts = [w.f.contacts.p2, w.f.contacts.p3, w.f.contacts.p4].slice(0, leads);
+    for (const c of contacts) await createManualLead(t, w.actor, { contactId: c, listingId: w.listingId, kind: 'enquiry', message: null });
+    const tick = await runWorkflowTick(t, new Date());
+    await runScheduledActions(t, {}, new Date());
+    assert(tick.runs === leads, `runs: ${JSON.stringify(tick)}`);
+    const second = () => count(t, sql`select count(*)::int as n from notification where user_id = ${w.f.people.a1} and title = 'Stop second'`);
+    const later = () => runScheduledActions(t, {}, new Date(Date.now() + 2 * 3_600_000));
+    return { w, second, later };
+  }
+
+  await check('the panel’s Stop: a colleague may not; the owner of the agency may; nothing more of the run is sent, and it says why', async () =>
+    inRollback(async (t) => {
+      const x = await runningFixture(t, 1);
+      const [run] = await runsOf(t, x.w.workflowId);
+      const [r] = await t.execute<{ id: string }>(sql`select id from workflow_run where workflow_id = ${x.w.workflowId}`);
+      const colleague = await t.transaction((sp) => stopWorkflowRun(sp as unknown as Db, x.w.f.actor('a2'), r!.id)).then(() => 'stopped', (e: unknown) => (e as { code?: string }).code);
+      assert(colleague === 'forbidden' || colleague === 'not_found', `a colleague: ${colleague}`);
+      assert((await stopWorkflowRun(t, x.w.f.actor('owner'), r!.id)).stopped === 1, 'the owner could not stop it');
+      await x.later();
+      assert((await x.second()) === 0, 'the second step ran after Stop');
+      const [task] = await t.execute<{ status: string; error: string | null }>(sql`select status, error from assistant_task where id = ${run!.task_id}`);
+      const steps = await t.execute<{ status: string }>(sql`select status from proposed_action where task_id = ${run!.task_id} order by task_seq`);
+      assert(task!.status === 'cancelled' && task!.error === STOPPED_BY_HAND && steps.map((s) => s.status).join() === 'done,cancelled', `task ${JSON.stringify(task)} steps ${JSON.stringify(steps)}`);
+      const again = await t.transaction((sp) => stopWorkflowRun(sp as unknown as Db, x.w.f.actor('owner'), r!.id)).then(() => 'stopped', (e: unknown) => (e as Error).message);
+      assert(again === 'This run has already finished', `again: ${again}`);
+      return 'A2 refused; owner stopped it; "Stop second" never rang; task cancelled "Stopped by hand…", steps done,cancelled; a second Stop says it already finished';
+    }),
+  );
+
+  await check('the chat’s "stop": the workflow is paused and every run in flight ends, in one transaction', async () =>
+    inRollback(async (t) => {
+      const x = await runningFixture(t, 3);
+      await setWorkflowStatus(t, x.w.actor, x.w.workflowId, 'paused');
+      const { stopped } = await stopWorkflowRuns(t, x.w.actor, x.w.workflowId);
+      await x.later();
+      const [wf] = await t.execute<{ status: string }>(sql`select status from workflow where id = ${x.w.workflowId}`);
+      assert(stopped === 3 && wf!.status === 'paused' && (await x.second()) === 0, `stopped ${stopped}, ${wf!.status}, second rang ${await x.second()}`);
+      return '3 runs in flight → 3 stopped, none rang its second step; the workflow paused';
+    }),
+  );
+
+  await check('the panel’s run says who it is for, the step done at its time, and the next due its wait later (ADR 0106 part 3)', async () =>
+    inRollback(async (t) => {
+      const x = await runningFixture(t, 1);
+      const [c] = await t.execute<{ name: string }>(sql`select name from contact where id = ${x.w.f.contacts.p2}`);
+      // The panel's own read: what /api/automations?detail= sends.
+      const r = (await automationDetail(t, x.w.actor, `workflow:${x.w.workflowId}`))?.runs[0];
+      assert(r && r.who === c!.name, `who: ${r?.who ?? 'no run'}`);
+      const [done, next] = r.steps ?? [];
+      assert(done?.status === 'done' && done.at && next?.status === 'scheduled' && next.at, `steps ${JSON.stringify(r.steps)}`);
+      const gap = new Date(next.at).getTime() - new Date(done.at).getTime();
+      assert(Math.abs(gap - 3_600_000) < 60_000, `the next step is due ${gap} ms after the first, not its 1 h wait`);
+      return 'who = the lead’s contact; step 1 done at its time; step 2 due 1 h after it (its wait)';
+    }),
+  );
+
+  await check('a 12-step workflow saves; 13 steps are refused', async () =>
+    inRollback(async (t) => {
+      const w = await workflowFixture(t, { trigger: { kind: 'lead.created', source: 'manual' }, conditions: [], actions: [{ type: 'remind_owner', text: 'x', mail_me: false }] });
+      const step = { type: 'remind_owner', text: 'Step', mail_me: false };
+      const spec = (n: number) => ({ trigger: { kind: 'lead.created', source: 'manual' }, conditions: [], actions: Array(n).fill(step) });
+      await saveWorkflow(t, w.actor, { name: `Smoke twelve ${w.f.tag}`, scope: 'mine', spec: spec(12) });
+      const thirteen = await t.transaction((sp) => saveWorkflow(sp as unknown as Db, w.actor, { name: `Smoke thirteen ${w.f.tag}`, scope: 'mine', spec: spec(13) })).then(() => 'saved', () => 'refused');
+      assert(thirteen === 'refused', 'a 13-step workflow was saved');
+      return '12 steps saved; 13 refused';
     }),
   );
 

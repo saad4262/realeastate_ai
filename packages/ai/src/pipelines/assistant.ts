@@ -26,11 +26,11 @@ import {
   type ToolOutcome,
 } from '@repo/core/assistant';
 import { getModel, SERVER_FALLBACK_MODELS, type TokenUsage } from '../models';
-import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v31';
+import { ASSISTANT_PROMPT_VERSION, ASSISTANT_SYSTEM } from '../prompts/assistant-v32';
 import { embedderFromEnv } from '../search/voyage';
 import { assistantToolsFor } from '../tools/assistant-tools';
 import type { ChatScope } from '@repo/core/assistant/chat-scopes';
-import { CHAT_SCOPE_PROMPT_VERSION, chatScopeBrief } from '../prompts/chat-scope-v1';
+import { CHAT_SCOPE_PROMPT_VERSION, chatScopeBrief } from '../prompts/chat-scope-v2';
 import { skillsOffForActor } from '@repo/core/skill-switches';
 import type { SkillKey } from '@repo/core/skill-switches/catalog';
 import { trackAiRunQuietly } from '../usage';

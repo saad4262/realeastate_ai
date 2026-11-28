@@ -58,7 +58,7 @@ import { findBuyers } from './buyer-tools';
 import { findDeals } from './deal-tools';
 import { mayCreateImport } from '../imports/imports';
 import { findSkills, proposeChangeSkill, proposeSetUpSkill, proposeSwitchSkill } from './skill-tools';
-import { chatScopeRefusal, chatScopeSkillFor, templateChannel, type ChatScope } from './chat-scopes';
+import { chatScopeRefusal, chatScopeSkillFor, templateChannel, workflowStepSkills, type ChatScope } from './chat-scopes';
 import { platformSkill, skillOffMessage, skillsForToolCall } from '../skill-switches/catalog';
 import { openChatTool } from './open-chat';
 import { proposeSendTemplateSms } from './sms-tools';
@@ -278,10 +278,13 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
   const gates = skillsForToolCall(tool, parsed.data);
   // A skill chat's actions need that skill on, the switch Bulk email's own page asks (ADR 0088). Old chats are not changed.
   const chatSkill = ctx.chatScope ? chatScopeSkillFor(ctx.chatScope, tool) : undefined;
-  if (chatSkill && (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(tool)) {
+  const needs = new Set<SkillKey>(chatSkill && (ASSISTANT_WRITE_TOOLS as readonly string[]).includes(tool) ? [chatSkill] : []);
+  // ADR 0105: a workflow — emails and texts in one — needs each step's switch on, the ones its runs will ask.
+  if (tool === 'create_workflow') for (const k of workflowStepSkills(parsed.data)) needs.add(k);
+  for (const key of needs) {
     // A `pair` skill needs the agency's switch AND this person's, which the set below cannot say.
-    if (!platformSkill(chatSkill).pair) gates.push(chatSkill);
-    else if (!(await isSkillOnForChat(ctx.db, actor, chatSkill))) return refused(`${skillOffMessage(chatSkill, holderOf(actor.membershipRole))} Nothing was done.`, label);
+    if (!platformSkill(key).pair) gates.push(key);
+    else if (!(await isSkillOnForChat(ctx.db, actor, key))) return refused(`${skillOffMessage(key, holderOf(actor.membershipRole))} Nothing was done.`, label);
   }
   const off = gates.length ? await (ctx.skillsOff ?? (() => skillsOffForActor(ctx.db, actor)))() : null;
   for (const key of gates) {
@@ -295,8 +298,10 @@ export async function runAssistantTool(ctx: ToolContext, name: string, rawInput:
       return findLeads(ctx, parsed.data as FindLeads, label);
     case 'find_appointments':
       return findAppointments(ctx, parsed.data as FindAppointments, label);
-    case 'list_templates':
-      return listApprovedTemplates(ctx, label, templateChannel(ctx.chatScope ?? null, (parsed.data as { channel?: 'email' | 'sms' }).channel));
+    case 'list_templates': {
+      const asked = (parsed.data as { channel?: 'email' | 'sms' }).channel;
+      return listApprovedTemplates(ctx, label, templateChannel(ctx.chatScope ?? null, asked), asked);
+    }
     case 'check_connections':
       return checkConnections(ctx, parsed.data as CheckConnections, label);
     case 'show_widget':
@@ -723,7 +728,7 @@ async function findAppointments(
   };
 }
 
-async function listApprovedTemplates(ctx: ToolContext, label: string, channel: 'email' | 'sms' = 'email'): Promise<ToolOutcome> {
+async function listApprovedTemplates(ctx: ToolContext, label: string, channel: 'email' | 'sms' = 'email', asked?: 'email' | 'sms'): Promise<ToolOutcome> {
   const { db, actor } = ctx;
   if (!can(actor, 'email_template:read', { type: 'email_template', agencyId: actor.agencyId as string })) {
     return refused('You do not have permission to view email templates.', label);
@@ -735,7 +740,14 @@ async function listApprovedTemplates(ctx: ToolContext, label: string, channel: '
   return {
     label,
     frame: { kind: 'templates', total: approved.length, rows: shown },
-    result: { note: DATA_NOTE, total: shown.length, templates: shown.map((t) => ({ ref: t.handle, name: t.name, subject: t.subject })) },
+    result: {
+      note: DATA_NOTE,
+      // A skill chat lists its own channel whatever was asked: say which, so an email template is never taken for an SMS one.
+      channel,
+      ...(asked && asked !== channel ? { not_listed: `This chat lists only ${channel} templates. ${asked === 'sms' ? 'SMS' : 'Email'} templates are not shown here, so none of these is one.` } : {}),
+      total: shown.length,
+      templates: shown.map((t) => ({ ref: t.handle, name: t.name, subject: t.subject })),
+    },
   };
 }
 

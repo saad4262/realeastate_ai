@@ -258,9 +258,10 @@
   }
 }
 
-/* A chat that made an automation has its panel on the right of a wide screen: keep the conversation clear of it. */
+/* A chat that made an automation has its panel on the right of a wide screen: keep the conversation clear of it.
+   Matched by its data attribute, not its label: the label changed once and this stopped matching (2026-11-28). */
 @media (min-width: 1200px) {
-  .homeStarted:has(aside[aria-label='This chat’s automations']) {
+  .homeStarted:has(aside[data-chat-side]) {
     padding-right: calc(24rem + 2rem);
   }
 }

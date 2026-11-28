@@ -6,6 +6,7 @@ import { AssistantError, stopAssistantTask } from '@repo/core/assistant';
 import { AutomationError, driveAutomationRun, runAutomationNow, setAutomationStatus, stopAutomationRun } from '@repo/core/recurring';
 import { phoneDepsFromEnv } from '@repo/core/phone';
 import { templateSendDepsFromEnv } from '@repo/core/template-email';
+import { stopWorkflowRun, WorkflowError } from '@repo/core/workflows';
 import { getConsoleDb } from './db';
 import { loadListingActor } from './load-actor';
 import { requireActionUserId } from './auth-account';
@@ -20,7 +21,7 @@ async function actor() {
 }
 
 function fail(err: unknown): { ok: false; error: string } {
-  if (err instanceof AutomationError || err instanceof AssistantError) return { ok: false, error: err.message };
+  if (err instanceof AutomationError || err instanceof AssistantError || err instanceof WorkflowError) return { ok: false, error: err.message };
   console.error('[automations] action failed', err instanceof Error ? err.message : 'unknown');
   return { ok: false, error: 'That did not work. Please try again.' };
 }
@@ -34,6 +35,16 @@ function refresh() {
 export async function stopTaskAction(taskId: string): Promise<R> {
   try {
     await stopAssistantTask(getConsoleDb(), await actor(), String(taskId));
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** ADR 0106: stop one workflow run still going; the workflow stays on for the next lead. */
+export async function stopWorkflowRunAction(runId: string): Promise<R> {
+  try {
+    await stopWorkflowRun(getConsoleDb(), await actor(), String(runId));
     return { ok: true };
   } catch (err) {
     return fail(err);

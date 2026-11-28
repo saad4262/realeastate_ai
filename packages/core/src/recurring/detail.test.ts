@@ -62,7 +62,54 @@ describe('automationDetail', () => {
     listEveryAutomation.mockResolvedValue([row({ key: `workflow:${ID}`, source: 'workflow' })]);
     workflowRuns.mockResolvedValue([{ id: 'w1', at: new Date(), status: 'started', error: null, decision: null, steps: [{ status: 'done' }, { status: 'scheduled' }, { status: 'failed' }] }]);
     const d = (await automationDetail({} as Db, agent, `workflow:${ID}`))!;
-    expect(d.runs[0]).toMatchObject({ total: 3, sent: 1, failed: 1, remaining: 2 });
+    expect(d.runs[0]).toMatchObject({ status: 'running', total: 3, sent: 1, failed: 1, remaining: 1 });
+  });
+
+  it('a run says how it went, from its steps: the run row only says it started (ADR 0106 part 3)', async () => {
+    listEveryAutomation.mockResolvedValue([row({ key: `workflow:${ID}`, source: 'workflow' })]);
+    const r = (id: string, status: string, ...st: string[]) => ({ id, at: new Date(), status, error: null, decision: null, who: null, steps: st.map((s) => ({ title: 'x', status: s, error: null, at: null, waitHours: 0, window: false })) });
+    workflowRuns.mockResolvedValue([r('a', 'started', 'done', 'done'), r('b', 'started', 'done', 'failed', 'cancelled'), r('c', 'started', 'done', 'cancelled'), r('d', 'skipped')]);
+    const d = (await automationDetail({} as Db, agent, `workflow:${ID}`))!;
+    expect(d.runs.map((x) => x.status)).toEqual(['done', 'failed', 'stopped', 'skipped']);
+  });
+
+  it('a workflow run still going has Stop for who may manage it, a finished one none (ADR 0106)', async () => {
+    const runs = [
+      { id: 'going', at: new Date(), status: 'started', error: null, decision: null, steps: [{ status: 'done', error: null }, { status: 'scheduled', error: null }] },
+      { id: 'over', at: new Date(), status: 'started', error: null, decision: null, steps: [{ status: 'done', error: null }, { status: 'cancelled', error: null }] },
+    ];
+    workflowRuns.mockResolvedValue(runs);
+    listEveryAutomation.mockResolvedValue([row({ key: `workflow:${ID}`, source: 'workflow', canToggle: true })]);
+    const may = (await automationDetail({} as Db, agent, `workflow:${ID}`))!;
+    expect(may.runs.map((r) => r.canStop)).toEqual([true, false]);
+    listEveryAutomation.mockResolvedValue([row({ key: `workflow:${ID}`, source: 'workflow', canToggle: false })]);
+    const mayNot = (await automationDetail({} as Db, agent, `workflow:${ID}`))!;
+    expect(mayNot.runs.map((r) => r.canStop)).toEqual([false, false]);
+  });
+
+  it('a run a reply stopped has nothing left: its cancelled steps are skipped, and it says why (ADR 0103)', async () => {
+    listEveryAutomation.mockResolvedValue([row({ key: `workflow:${ID}`, source: 'workflow' })]);
+    const why = 'Stopped: they emailed or texted back, so nothing more of this run was sent.';
+    workflowRuns.mockResolvedValue([{ id: 'w1', at: new Date(), status: 'started', error: null, decision: null, steps: [{ status: 'done', error: null }, { status: 'cancelled', error: why }, { status: 'cancelled', error: null }] }]);
+    const d = (await automationDetail({} as Db, agent, `workflow:${ID}`))!;
+    expect(d.runs[0]).toMatchObject({ status: 'stopped', total: 3, sent: 1, failed: 0, skipped: 2, remaining: 0, detail: why });
+    // Said once, on the run — not again on each skipped step.
+    expect(d.runs[0]!.steps!.map((s) => s.error)).toEqual([null, null, null]);
+  });
+
+  it('a workflow run says who it is for, each step’s time, and how long a step not yet due waits (ADR 0106 part 3)', async () => {
+    listEveryAutomation.mockResolvedValue([row({ key: `workflow:${ID}`, source: 'workflow' })]);
+    const at = new Date('2026-11-28T01:02:00Z');
+    workflowRuns.mockResolvedValue([{ id: 'w1', at, status: 'started', error: null, decision: null, who: 'Sara Khan', steps: [
+      { title: 'Send “Welcome”', status: 'done', error: null, at, waitHours: 0, window: false },
+      { title: 'Call task', status: 'blocked', error: null, at: null, waitHours: 24, window: false },
+    ] }]);
+    const d = (await automationDetail({} as Db, agent, `workflow:${ID}`))!;
+    expect(d.runs[0]!.who).toBe('Sara Khan');
+    expect(d.runs[0]!.steps).toEqual([
+      { title: 'Send “Welcome”', status: 'done', at: at.toISOString(), error: null, after: null },
+      { title: 'Call task', status: 'blocked', at: null, error: null, after: '24 h after the step before' },
+    ]);
   });
 
   it('someone else’s AI skill shows, but not its runs', async () => {
@@ -99,6 +146,19 @@ describe('automationsOfChat', () => {
     expect((await automationsOfChat(fakeDb([]).db, agent, '00000000-0000-4000-8000-0000000000c1'.replace('c1', '01'))).length).toBe(0);
     listEveryAutomation.mockResolvedValue([row({ conversationId: ID }), row({ key: 'recurring:y', mine: false, conversationId: ID })]);
     expect(await automationsOfChat(fakeDb([]).db, agent, ID)).toEqual([{ key: `recurring:${ID}`, name: 'Monday', state: 'active' }]);
+  });
+  it('a workflow paused or stopped in this chat shows as itself, live, wherever it was made; its change card goes (ADR 0106 part 3)', async () => {
+    const W = '00000000-0000-4000-8000-0000000000f1';
+    const GONE = '00000000-0000-4000-8000-0000000000f2';
+    listEveryAutomation.mockResolvedValue([row({ conversationId: ID }), row({ key: `workflow:${W}`, source: 'workflow', id: W, name: 'New lead', mine: false, conversationId: null })]);
+    const change = (id: string, workflowId: string) => ({ id, tool: 'change_workflow', args: { tool: 'change_workflow', workflowId, change: 'stop' }, card: { title: 'Stop the workflow' }, status: 'done' });
+    const { db } = fakeDb([[change(ACTION, W), change(BATCH, GONE)]]);
+    expect(await automationsOfChat(db, agent, ID)).toEqual([
+      { key: `recurring:${ID}`, name: 'Monday', state: 'active' },
+      { key: `workflow:${W}`, name: 'New lead', state: 'active' },
+      // One this person cannot see (or archived) is not in their list: its card stays, and nothing of it leaks.
+      { key: `action:${BATCH}`, name: 'Stop the workflow', state: 'finished' },
+    ]);
   });
   it('nothing for an id that is not one', async () => {
     expect(await automationsOfChat({} as Db, agent, 'nope')).toEqual([]);

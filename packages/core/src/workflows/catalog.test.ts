@@ -25,10 +25,11 @@ describe('workflowSpecSchema — only catalog parts, never code', () => {
     expect(parse({ trigger: { kind: 'lead.created' }, actions: [{ type: 'draft_email', instructions: 'x', to: 'a@b.co' }] }).success).toBe(false);
     expect(parse({ trigger: { kind: 'lead.created' }, actions: [], code: 'x' }).success).toBe(false);
   });
-  it('bounds: 1–6 actions, up to 5 conditions, a wait up to 30 days, no-reply 1–14 days', () => {
+  it('bounds: 1–12 actions (ADR 0106), up to 5 conditions, a wait up to 30 days, no-reply 1–14 days', () => {
     const a = { type: 'remind_owner', text: 'x' };
     expect(parse({ trigger: { kind: 'lead.created' }, actions: [] }).success).toBe(false);
-    expect(parse({ trigger: { kind: 'lead.created' }, actions: Array(7).fill(a) }).success).toBe(false);
+    expect(parse({ trigger: { kind: 'lead.created' }, actions: Array(12).fill(a) }).success).toBe(true);
+    expect(parse({ trigger: { kind: 'lead.created' }, actions: Array(13).fill(a) }).success).toBe(false);
     expect(parse({ trigger: { kind: 'lead.created' }, actions: [{ type: 'wait', hours: 721 }, a] }).success).toBe(false);
     expect(parse({ trigger: { kind: 'lead.no_reply', days: 15 }, actions: [a] }).success).toBe(false);
     expect(parse({ trigger: { kind: 'lead.no_reply', days: 3 }, actions: [a] }).success).toBe(true);
@@ -90,6 +91,7 @@ describe('specInWords — the card, the screen and the log say the same thing', 
       when: 'When an enquiry arrives from the website',
       if: ['the listing’s suburb is Parramatta or Ryde'],
       then: ['Give the lead to Ahmed', 'Wait 1 day', 'Send the template “Welcome” to the contact (only if they may receive it then)'],
+      onReply: 'If they email or text back, every step still to come stops',
     });
   });
 });

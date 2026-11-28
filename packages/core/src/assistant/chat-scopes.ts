@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { AssistantToolName, PlannableTool } from './schema';
-import type { SkillKey } from '../skill-switches/catalog';
+import { SKILL_OF_WORKFLOW_STEP, type SkillKey } from '../skill-switches/catalog';
 
 /**
  * The kinds of console chat (ADR 0088). A chat's scope is written once, when it is made, and everything
@@ -102,8 +102,8 @@ export const CHAT_SCOPE_FACE: Readonly<Record<OpenChatScope, { icon: string; gre
 
 /** How Overview's AI Assistant presents itself. */
 export const OVERVIEW_FACE = Object.freeze({
-  hint: 'Finds things and does everyday work. For a skill’s job, it opens that skill’s assistant.',
-  suggestions: ['Which leads came in this week?', 'What’s on my calendar tomorrow?', 'Book an appraisal with this contact tomorrow at 3pm', 'Is my Google Calendar connected?'],
+  hint: 'Finds things, does everyday work, and sets up and runs your automations. For a skill’s other jobs, it opens that skill’s assistant.',
+  suggestions: ['Which leads came in this week?', 'What’s on my calendar tomorrow?', 'When a new lead comes in, email them, then text them 2 hours later', 'How are my automations doing?'],
 });
 
 /** What each chat is called, in Recents and at its top. */
@@ -183,9 +183,10 @@ const SEND_READS = ['find_contacts', 'find_leads', 'find_saved_lists', 'list_tem
 const BUILD_TOOLS = ['create_workflow', 'change_workflow'] as const satisfies readonly AssistantToolName[];
 
 export const CHAT_SCOPE_RULES: Readonly<Record<ChatScope, ScopeRule>> = Object.freeze({
-  // The AI Assistant on Overview (the user, 2026-11-10): looks things up and does everyday work. A skill's job is its own assistant's.
+  // The AI Assistant on Overview (the user, 2026-11-10): looks things up and does everyday work. A skill's job is its own assistant's,
+  // except workflows (ADR 0105, the user 2026-11-27): Overview builds and manages them, email and text steps in one; each step's switch is asked.
   general: {
-    tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_appointments', 'find_listings', 'find_buyers', 'find_deals', 'find_team_members', 'find_agents', 'find_colleagues', 'find_saved_lists', 'find_skills', 'find_workflows', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'describe_data', 'query_data', 'search_documents', 'read_document', 'start_import', ...EVERYDAY_ACTIONS, 'update_agent', 'remove_agent', 'invite_agent', 'schedule_team_meeting', 'open_chat'],
+    tools: [...EVERY_CHAT, 'find_contacts', 'find_leads', 'find_appointments', 'find_listings', 'find_buyers', 'find_deals', 'find_team_members', 'find_agents', 'find_colleagues', 'find_saved_lists', 'find_skills', 'find_workflows', 'list_templates', 'check_connections', 'show_widget', 'search_notes_and_emails', 'describe_data', 'query_data', 'search_documents', 'read_document', 'start_import', ...EVERYDAY_ACTIONS, 'update_agent', 'remove_agent', 'invite_agent', 'schedule_team_meeting', ...BUILD_TOOLS, 'open_chat'],
     planSteps: EVERYDAY_STEPS,
     toolSkills: { update_agent: 'team_management', remove_agent: 'team_management', invite_agent: 'team_management', schedule_team_meeting: 'team_meetings' },
   },
@@ -253,6 +254,11 @@ function workflowStepTypes(input: unknown): string[] {
   const i = (input ?? {}) as { actions?: { type?: string }[]; decide?: { choices?: { actions?: { type?: string }[] }[] } };
   const all = [...(i.actions ?? []), ...(i.decide?.choices ?? []).flatMap((c) => c.actions ?? [])];
   return all.map((a) => a.type ?? '');
+}
+
+/** ADR 0105: the switch each step of a proposed workflow needs on, whichever chat builds it — the ones its run will ask. */
+export function workflowStepSkills(input: unknown): SkillKey[] {
+  return [...new Set(workflowStepTypes(input).map((t) => SKILL_OF_WORKFLOW_STEP[t]).filter((k): k is SkillKey => k !== undefined))];
 }
 
 /** The switch this chat's action answers to. */

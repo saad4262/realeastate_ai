@@ -2928,6 +2928,8 @@ export const workflowRun = pgTable(
     index('workflow_run_recent_idx').on(t.workflowId, desc(t.createdAt)),
     /** The Control Centre (ADR 0091): an agency's runs, newest first. */
     index('workflow_run_agency_idx').on(t.agencyId, desc(t.createdAt)),
+    /** ADR 0103: each workflow step finds its run by task, to see whether the person has replied. */
+    index('workflow_run_task_id_idx').on(t.taskId).where(sql`task_id is not null`),
   ],
 );
 

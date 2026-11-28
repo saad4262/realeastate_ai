@@ -5,7 +5,7 @@ import type { Db } from '@repo/db';
 import type { Actor } from '../permissions';
 import { PLATFORM_SKILLS } from '../skill-switches/catalog';
 import { approveProposedAction } from './actions';
-import { CHAT_SCOPE_FACE, CHAT_SCOPE_RULES, CHAT_SCOPES, OPEN_CHAT_SCOPES, SCOPE_ONLY_TOOLS, SHARED_ACTION_TOOLS, UNSCOPED_ACTION_TOOLS, chatScopeAllowsCard, chatScopeOfSkill, chatScopeRefusal, isOpenChatScope, parseChatScope, templateChannel, workflowFitsChat, type ChatScope } from './chat-scopes';
+import { CHAT_SCOPE_FACE, CHAT_SCOPE_RULES, CHAT_SCOPES, OPEN_CHAT_SCOPES, SCOPE_ONLY_TOOLS, SHARED_ACTION_TOOLS, UNSCOPED_ACTION_TOOLS, chatScopeAllowsCard, chatScopeOfSkill, chatScopeRefusal, isOpenChatScope, parseChatScope, templateChannel, workflowFitsChat, workflowStepSkills, type ChatScope } from './chat-scopes';
 import { claimTurn } from './conversations';
 import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_NAMES, ASSISTANT_WRITE_TOOLS, PLANNABLE_TOOLS, PROPOSED_ACTION_TOOLS, assistantTurnRequestSchema } from './schema';
 import { runAssistantTool } from './tools';
@@ -24,9 +24,9 @@ describe('the registry', () => {
     }
   });
 
-  it('Overview’s AI Assistant does no skill’s job', () => {
+  it('Overview’s AI Assistant does no skill’s job but workflows (ADR 0105)', () => {
     const skillTools = ['email', 'sms', 'listing_copy', 'dashboards', 'ai_skills'].flatMap((x) => CHAT_SCOPE_RULES[x as ChatScope].tools as readonly string[]).filter((t) => WRITES.includes(t));
-    expect(CHAT_SCOPE_RULES.general.tools.filter((t) => skillTools.includes(t))).toEqual([]);
+    expect(CHAT_SCOPE_RULES.general.tools.filter((t) => skillTools.includes(t)).sort()).toEqual(['change_workflow', 'create_workflow']);
   });
 
   it('every action tool belongs to exactly one chat, unless it is named as shared or as in none', () => {
@@ -40,9 +40,11 @@ describe('the registry', () => {
     }
   });
 
-  it('only the two automations chats may build a workflow, and each refuses the other channel', () => {
-    expect(holders('create_workflow').sort()).toEqual(['email', 'sms']);
-    expect(holders('change_workflow').sort()).toEqual(['email', 'sms']);
+  it('Overview and the two automations chats build workflows; each automations chat refuses the other channel, Overview neither (ADR 0105)', () => {
+    expect(holders('create_workflow').sort()).toEqual(['email', 'general', 'sms']);
+    expect(holders('change_workflow').sort()).toEqual(['email', 'general', 'sms']);
+    expect(chatScopeRefusal('general', 'create_workflow', { actions: [{ type: 'send_template_email' }, { type: 'wait' }, { type: 'send_template_sms' }] })).toBeNull();
+    expect(workflowFitsChat('general', ['send_template_email', 'send_template_sms'])).toBe(true);
     expect(CHAT_SCOPE_RULES.email.refusedWorkflowSteps).toContain('send_template_sms');
     expect(CHAT_SCOPE_RULES.sms.refusedWorkflowSteps).toEqual(expect.arrayContaining(['send_template_email', 'draft_email']));
   });
@@ -258,6 +260,16 @@ describe('runAssistantTool in a chat', () => {
   it('reading still works with the skill off, so the chat can say what is wrong', async () => {
     const reached = await runAssistantTool({ ...ctx('email'), ...off }, 'find_saved_lists', {}).then((o) => JSON.stringify(o.result), () => 'reached the database');
     expect(reached).not.toContain('switched off');
+  });
+
+  it('a workflow needs each of its steps’ switches on, in Overview too (ADR 0105)', async () => {
+    const wf = (type: string) => ({ name: 'W', trigger: { kind: 'lead.created' }, actions: [{ type: 'remind_owner', text: 'x' }, { type, template: 'T1' }] });
+    const emailsOff = { skillsOff: async () => new Set(['workflow_emails'] as const) };
+    expect(JSON.stringify((await runAssistantTool({ ...ctx('general'), ...emailsOff }, 'create_workflow', wf('send_template_email'))).result)).toContain('switched off');
+    const passed = await runAssistantTool({ ...ctx('general'), ...emailsOff }, 'create_workflow', wf('add_note')).then((o) => JSON.stringify(o.result), () => 'reached the database');
+    expect(passed).not.toContain('switched off');
+    expect(workflowStepSkills({ actions: [{ type: 'send_template_email' }, { type: 'wait' }], decide: { choices: [{ actions: [{ type: 'send_template_sms' }, { type: 'draft_email' }] }] } }).sort()).toEqual(['ai_email_drafts', 'workflow_emails', 'workflow_texts']);
+    expect(workflowStepSkills({ actions: [{ type: 'add_note' }] })).toEqual([]);
   });
 
   it('a chat from before the ADR is not gated by this switch: nothing changes for it', async () => {

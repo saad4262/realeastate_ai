@@ -1,5 +1,5 @@
 import { and, count, desc, eq, gt, inArray, isNull, ne, sql } from 'drizzle-orm';
-import { emailTemplate, listing, property, proposedAction, user, workflow, workflowRun, type Db, type DbOrTx } from '@repo/db';
+import { assistantTask, emailTemplate, listing, property, proposedAction, user, workflow, workflowRun, type Db, type DbOrTx } from '@repo/db';
 import { activeMemberActor } from '../team/member-actor';
 import type { RunDecision } from './decide';
 import { usableTemplateSql } from '../template-email/templates';
@@ -163,6 +163,65 @@ export async function setWorkflowStatus(db: DbOrTx, actor: Actor, id: string, st
   await db.update(workflow).set({ status, pausedReason: null, updatedAt: sql`now()` }).where(eq(workflow.id, w.id));
 }
 
+/** What a run stopped from the chat or the Automations panel says (ADR 0106). */
+export const STOPPED_BY_HAND = 'Stopped by hand, so nothing more of this run was sent.';
+
+/** The tasks of this workflow's runs that are still going. A subquery: no ids pass through the app. */
+const tasksInFlight = (db: DbOrTx, workflowId: string) =>
+  db
+    .select({ id: workflowRun.taskId })
+    .from(workflowRun)
+    .innerJoin(assistantTask, eq(assistantTask.id, workflowRun.taskId))
+    .where(and(eq(workflowRun.workflowId, workflowId), inArray(assistantTask.status, ['proposed', 'active'])));
+
+/**
+ * Every step still to come of these tasks cancelled, then the tasks ended, saying why. Two statements; the caller's
+ * transaction. Steps first, then the task — the order the minute tick locks them in — so a step running at that moment
+ * is waited for, never deadlocked with; it finishes, and the step it would release is cancelled.
+ */
+async function stopTasks(db: DbOrTx, taskIds: string[], now: Date): Promise<number> {
+  if (!taskIds.length) return 0;
+  await db
+    .update(proposedAction)
+    .set({ status: 'cancelled', error: STOPPED_BY_HAND, updatedAt: sql`now()` })
+    .where(and(inArray(proposedAction.taskId, taskIds), inArray(proposedAction.status, ['blocked', 'scheduled'])));
+  const ended = await db
+    .update(assistantTask)
+    .set({ status: 'cancelled', error: STOPPED_BY_HAND, finishedAt: now, updatedAt: sql`now()` })
+    .where(and(inArray(assistantTask.id, taskIds), inArray(assistantTask.status, ['proposed', 'active'])))
+    .returning({ id: assistantTask.id });
+  return ended.length;
+}
+
+/** How many of this workflow's runs are still going, for the card that would stop them. */
+export async function countRunsInFlight(db: DbOrTx, workflowId: string): Promise<number> {
+  return (await tasksInFlight(db, workflowId)).length;
+}
+
+/**
+ * ADR 0106: every run of this workflow still going is stopped — what has gone stays gone, nothing more is
+ * sent. Its owner or an owner/admin (`workflow:manage`, the rule for pausing it). Takes the caller's
+ * transaction; the workflow itself is not paused here (the chat's "stop" pauses it as well).
+ */
+export async function stopWorkflowRuns(db: DbOrTx, actor: Actor, workflowId: string, now = new Date()): Promise<{ stopped: number }> {
+  const w = await loadWorkflow(db, actor, workflowId);
+  if (!can(actor, 'workflow:manage', resource(w))) throw new WorkflowError('forbidden', 'Only its owner or an admin can stop this workflow’s runs');
+  const ids = (await tasksInFlight(db, w.id)).map((r) => r.id).filter((id): id is string => Boolean(id));
+  return { stopped: await stopTasks(db, ids, now) };
+}
+
+/** ADR 0106: one run still going, stopped — the Automations panel's Stop. Same rule as stopping them all. */
+export async function stopWorkflowRun(db: Db, actor: Actor, runId: string, now = new Date()): Promise<{ stopped: number }> {
+  if (!actor.agencyId || !UUID.test(runId)) throw NOT_FOUND();
+  const [run] = await db.select({ workflowId: workflowRun.workflowId, taskId: workflowRun.taskId }).from(workflowRun).where(and(eq(workflowRun.id, runId), eq(workflowRun.agencyId, actor.agencyId))).limit(1);
+  if (!run) throw NOT_FOUND();
+  const w = await loadWorkflow(db, actor, run.workflowId);
+  if (!can(actor, 'workflow:manage', resource(w))) throw new WorkflowError('forbidden', 'Only its owner or an admin can stop this workflow’s runs');
+  const stopped = await db.transaction((tx) => stopTasks(tx, run.taskId ? [run.taskId] : [], now));
+  if (!stopped) throw new WorkflowError('invalid', 'This run has already finished');
+  return { stopped };
+}
+
 /** The admin's stop button: every active workflow of the agency paused at once. */
 export async function pauseAllWorkflows(db: DbOrTx, actor: Actor): Promise<number> {
   if (!actor.agencyId || !can(actor, 'workflow:create_agency', { type: 'workflow', agencyId: actor.agencyId })) {
@@ -201,8 +260,29 @@ export type WorkflowSummary = {
   triggerKind: TriggerKind | null;
   decides: boolean;
   runsToday: number;
+  /** ADR 0105: how its latest run went, for the AI Assistant to report; null when it never ran. */
+  lastRun: { at: Date; words: string } | null;
   mayManage: boolean;
 };
+
+type LastRunRow = { at: string; run: string; error: string | null; task: string | null; why: string | null };
+
+/** ADR 0105: a run's state in words, from the run and its task — never a count the model could get wrong. */
+export function lastRunWords(r: Omit<LastRunRow, 'at'>): string {
+  if (r.run === 'skipped' || r.run === 'failed') return `${r.run === 'skipped' ? 'did not run' : 'failed'}${r.error ? `: ${r.error}` : ''}`;
+  switch (r.task) {
+    case 'active':
+      return 'running now';
+    case 'done':
+      return 'finished every step';
+    case 'cancelled':
+      return `stopped${r.why ? `: ${r.why}` : ''}`;
+    case 'failed':
+      return `failed${r.why ? `: ${r.why}` : ''}`;
+    default:
+      return r.task ? `ended (${r.task})` : 'started';
+  }
+}
 
 /** This person's workflows — every one of the agency for an admin. Archived left out. */
 export async function listWorkflows(db: Db, actor: Actor, now = new Date()): Promise<WorkflowSummary[]> {
@@ -212,6 +292,9 @@ export async function listWorkflows(db: Db, actor: Actor, now = new Date()): Pro
       w: workflow,
       ownerName: sql<string>`coalesce(nullif(${user.name}, ''), ${user.email})`,
       runsToday: sql<number>`(select count(*)::int from workflow_run r where r.workflow_id = ${workflow.id} and r.created_at > ${new Date(now.getTime() - 86_400_000).toISOString()}::timestamptz)`,
+      // The latest run, by workflow_run_recent_idx: in this same statement, never one more per workflow.
+      lastRun: sql<LastRunRow | null>`(select json_build_object('at', r.created_at, 'run', r.status, 'error', r.error, 'task', t.status, 'why', t.error)
+        from workflow_run r left join assistant_task t on t.id = r.task_id where r.workflow_id = ${workflow.id} order by r.created_at desc limit 1)`,
     })
     .from(workflow)
     .innerJoin(user, eq(user.id, workflow.ownerId))
@@ -235,6 +318,7 @@ export async function listWorkflows(db: Db, actor: Actor, now = new Date()): Pro
       decides: parsed.success && Boolean(parsed.data.decide),
       stepTypes: parsed.success ? allActions(parsed.data).map((a) => a.type) : [],
       runsToday: Number(r.runsToday),
+      lastRun: r.lastRun ? { at: new Date(r.lastRun.at), words: lastRunWords(r.lastRun) } : null,
       mayManage: can(actor, 'workflow:manage', resource(r.w)),
     });
   }
@@ -248,8 +332,37 @@ export type WorkflowRunView = {
   error: string | null;
   /** ADR 0067: what the AI chose at the start, and why; null on a workflow with no decision. */
   decision: RunDecision | null;
-  steps: { title: string; status: string; error: string | null }[];
+  /** Who the run is for: the name its steps were made with (ADR 0106 part 3); null when it made none, or named no one. */
+  who: string | null;
+  /**
+   * Each step in order. `at`: when it finished (done, failed, stopped), or when it is due (the next one); null for a step not yet
+   * released, whose time depends on the one before — `waitHours` after it, then `window` (a wait-until's hours).
+   */
+  steps: { title: string; status: string; error: string | null; at: Date | null; waitHours: number; window: boolean }[];
 };
+
+type StepRow = { card: unknown; args: unknown; status: string; error: string | null; runAt: Date | null; finishedAt: Date | null };
+
+/** A run's steps as the panel shows them, and who it is for. Pure. */
+export function runSteps(rows: readonly StepRow[]): Pick<WorkflowRunView, 'who' | 'steps'> {
+  const who = rows.map((s) => (s.card as { contact?: { name?: string } }).contact?.name?.trim()).find(Boolean) ?? null;
+  return {
+    who,
+    steps: rows.map((s) => {
+      const args = (s.args ?? {}) as { gapHours?: unknown; window?: unknown };
+      // A skipped step shows no time, however it was stopped: its reason says what happened.
+      const time = s.status === 'cancelled' ? null : (s.finishedAt ?? (s.status === 'scheduled' || s.status === 'running' ? s.runAt : null));
+      return {
+        title: (s.card as { title?: string }).title ?? '',
+        status: s.status,
+        error: s.error,
+        at: time ? new Date(time) : null,
+        waitHours: typeof args.gapHours === 'number' && args.gapHours > 0 ? args.gapHours : 0,
+        window: Boolean(args.window),
+      };
+    }),
+  };
+}
 
 /** One workflow's recent runs, each with its steps' outcomes — from the runs' tasks. */
 export async function workflowRuns(db: Db, actor: Actor, id: string, limit = 30): Promise<WorkflowRunView[]> {
@@ -258,7 +371,7 @@ export async function workflowRuns(db: Db, actor: Actor, id: string, limit = 30)
   const taskIds = runs.map((r) => r.taskId).filter((t): t is string => Boolean(t));
   const steps = taskIds.length
     ? await db
-        .select({ taskId: proposedAction.taskId, seq: proposedAction.taskSeq, card: proposedAction.card, status: proposedAction.status, error: proposedAction.error })
+        .select({ taskId: proposedAction.taskId, seq: proposedAction.taskSeq, card: proposedAction.card, args: proposedAction.args, status: proposedAction.status, error: proposedAction.error, runAt: proposedAction.runAt, finishedAt: proposedAction.finishedAt })
         .from(proposedAction)
         .where(inArray(proposedAction.taskId, taskIds))
         .orderBy(proposedAction.taskSeq)
@@ -269,7 +382,7 @@ export async function workflowRuns(db: Db, actor: Actor, id: string, limit = 30)
     status: r.status,
     error: r.error,
     decision: r.decision ?? null,
-    steps: steps.filter((s) => s.taskId === r.taskId).map((s) => ({ title: (s.card as { title?: string }).title ?? '', status: s.status, error: s.error })),
+    ...runSteps(steps.filter((s) => s.taskId === r.taskId)),
   }));
 }
 

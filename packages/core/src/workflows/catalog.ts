@@ -237,7 +237,8 @@ export const AGENCY_ONLY_ACTIONS: readonly ActionType[] = ['assign_lead', 'assig
 /** Actions that reach a contact. `send_template_email` sends by itself (an approved template, D1); `draft_email` never does. */
 export const REACHES_CONTACT: readonly ActionType[] = ['send_template_email', 'send_template_sms', 'draft_email'];
 
-export const WORKFLOW_LIMITS = { conditions: 5, actions: 6, perAgent: 10, perAgency: 50, runsPerDay: 200, draftDays: 7 } as const;
+// actions: 12 (ADR 0106), waits included; all waits together stay under 29 days (stepsProblem).
+export const WORKFLOW_LIMITS = { conditions: 5, actions: 12, perAgent: 10, perAgency: 50, runsPerDay: 200, draftDays: 7 } as const;
 
 // ── AI decides (ADR 0067, ROADMAP 4.2) ──────────────────────────────────────
 
@@ -269,9 +270,16 @@ export const workflowSpecSchema = z
     /** The steps — or, with `decide`, the "Not sure" steps. */
     actions: z.array(actionSchema).min(1).max(WORKFLOW_LIMITS.actions),
     decide: decideSchema.optional(),
+    /** ADR 0103: a reply from the run's person cancels the steps still to come. Absent = on; only `false` is stored. */
+    stop_on_reply: z.boolean().optional(),
   })
   .strict();
 export type WorkflowSpec = z.infer<typeof workflowSpecSchema>;
+
+/** ADR 0103: on unless the spec says `false`, so every workflow saved before it stops on a reply too. */
+export function stopsOnReply(spec: WorkflowSpec): boolean {
+  return spec.stop_on_reply !== false;
+}
 
 /** Every step a workflow may run, across its choices — for what a card warns about and what a run may need. */
 export function allActions(spec: WorkflowSpec): WorkflowAction[] {
@@ -565,13 +573,19 @@ export type SpecWords = {
   /** The steps — or, with a decision, the "Not sure" steps. */
   then: string[];
   decide?: { question: string; choices: { label: string; then: string[] }[] };
+  /** ADR 0103: what a reply does. Absent when the trigger has nobody who could reply. */
+  onReply?: string;
 };
 
 export function specInWords(spec: WorkflowSpec, names: Record<string, string> = {}): SpecWords {
+  const has = recordsOf(spec.trigger);
   return {
     when: triggerInWords(spec.trigger),
     if: spec.conditions.map((c) => conditionInWords(c, names)),
     then: spec.actions.map((a) => actionInWords(a, names)),
+    ...(has.contact || has.lead
+      ? { onReply: stopsOnReply(spec) ? 'If they email or text back, every step still to come stops' : 'It carries on even if they email or text back' }
+      : {}),
     ...(spec.decide
       ? { decide: { question: spec.decide.question, choices: spec.decide.choices.map((c) => ({ label: c.label, then: c.actions.map((a) => actionInWords(a, names)) })) } }
       : {}),

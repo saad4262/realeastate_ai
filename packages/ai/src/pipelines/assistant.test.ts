@@ -6,7 +6,7 @@ import { ASSISTANT_READ_TOOLS, ASSISTANT_TOOL_INPUTS, ASSISTANT_TOOL_NAMES, ASSI
 import { ASSISTANT_TOOLS, assistantToolsFor, SCOPE_ONLY_ASSISTANT_TOOLS } from '../tools/assistant-tools';
 import { ASSISTANT_ADMIN_TOOLS, ASSISTANT_TEAM_TOOLS } from '@repo/core/assistant/schema';
 import { CHAT_SCOPE_RULES, CHAT_SCOPES, OPEN_CHAT_SCOPES } from '@repo/core/assistant/chat-scopes';
-import { ASSISTANT_SYSTEM } from '../prompts/assistant-v31';
+import { ASSISTANT_SYSTEM } from '../prompts/assistant-v32';
 import { assistantSystemBlocks, contextBlock, runAssistantTurn, type AssistantDeps, type AssistantTurnInput } from './assistant';
 
 /**

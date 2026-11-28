@@ -8,7 +8,7 @@ import { getBatch } from '../template-email/batches';
 import { SKIP_REASON_LABELS } from '../template-email/schema';
 import { TemplateEmailError } from '../template-email/templates';
 import { workflowRuns } from '../workflows/manage';
-import { AUTOMATION_KEY, CHAT_ACTION_KEY, readableSendError, type AutomationDetail, type ChatActionDetail, type RunProgress } from './detail-types';
+import { AUTOMATION_KEY, CHAT_ACTION_KEY, readableSendError, stepAfterWords, type AutomationDetail, type ChatActionDetail, type RunProgress } from './detail-types';
 import { listEveryAutomation, type AutomationRow } from './list';
 import { listAutomationRuns } from './manage';
 
@@ -49,8 +49,14 @@ export async function automationDetail(db: Db, actor: Actor, key: string): Promi
     return {
       ...base,
       runs: runs.map((r) => {
-        const done = r.steps.filter((s) => s.status === 'done').length;
-        return { id: r.id, status: r.status, at: r.at.toISOString(), finishedAt: null, total: r.steps.length, sent: done, failed: r.steps.filter((s) => s.status === 'failed').length, skipped: 0, remaining: Math.max(0, r.steps.length - done), detail: r.error, manual: false };
+        const n = (...st: string[]) => r.steps.filter((s) => st.includes(s.status)).length;
+        // A cancelled step will never run (a reply stopped it, ADR 0103, or a step before it failed): skipped, not remaining.
+        const stopped = r.steps.find((s) => s.status === 'cancelled' && s.error)?.error ?? null;
+        // The run's line already says why it stopped: a skipped step does not repeat it.
+        const steps = r.steps.map((s) => ({ title: s.title, status: s.status, at: iso(s.at), error: s.status === 'cancelled' && s.error === (r.error ?? stopped) ? null : s.error, after: s.status === 'blocked' ? stepAfterWords(s.waitHours, s.window) : null }));
+        // The run row only says it started (or was skipped/failed before any step); how it went is in its steps.
+        const status = r.status !== 'started' || !r.steps.length ? r.status : n('blocked', 'scheduled', 'running') ? 'running' : n('failed') ? 'failed' : n('cancelled') ? 'stopped' : 'done';
+        return { id: r.id, status, at: r.at.toISOString(), finishedAt: null, total: r.steps.length, sent: n('done'), failed: n('failed'), skipped: n('cancelled'), remaining: n('blocked', 'scheduled', 'running'), detail: r.error ?? stopped, manual: false, canStop: row.canToggle && n('blocked', 'scheduled') > 0, who: r.who, steps };
       }),
     };
   }
@@ -84,7 +90,8 @@ const WENT_AHEAD = ['approved', 'scheduled', 'running', 'done', 'failed'] as con
 const MAKES_AUTOMATION = ['plan_task', 'set_up_skill', 'create_workflow'];
 
 /**
- * What one of this person's chats has made or done, for the panel beside it: its automations, then the things approved once
+ * What one of this person's chats has made or done, for the panel beside it: its automations, the workflows it paused, stopped or
+ * resumed (ADR 0106 part 3), then the things approved once
  * (the user, 2026-11-23), newest first. A task's steps are its task's, not cards of their own here.
  */
 export async function automationsOfChat(db: Db, actor: Actor, conversationId: string): Promise<Pick<AutomationRow, 'key' | 'name' | 'state'>[]> {
@@ -92,7 +99,7 @@ export async function automationsOfChat(db: Db, actor: Actor, conversationId: st
   const [automations, actions] = await Promise.all([
     listEveryAutomation(db, actor),
     db
-      .select({ id: proposedAction.id, card: proposedAction.card, status: proposedAction.status })
+      .select({ id: proposedAction.id, tool: proposedAction.tool, args: proposedAction.args, card: proposedAction.card, status: proposedAction.status })
       .from(proposedAction)
       .where(
         and(
@@ -107,9 +114,18 @@ export async function automationsOfChat(db: Db, actor: Actor, conversationId: st
       .orderBy(desc(proposedAction.createdAt))
       .limit(20),
   ]);
+  const made = automations.filter((r) => r.mine && r.conversationId === conversationId);
+  // ADR 0106 part 3: a workflow paused, stopped or resumed in this chat shows as itself, live — whoever made it, wherever —
+  // when this person may see it (the list is theirs); its change card then would say less, so it goes.
+  const changedKey = (a: { tool: string; args: unknown }) => (a.tool === 'change_workflow' ? `workflow:${(a.args as { workflowId?: string }).workflowId}` : null);
+  const changed = new Set(actions.map(changedKey));
+  const touched = automations.filter((r) => changed.has(r.key) && !made.includes(r));
+  const shown = new Set([...made, ...touched].map((r) => r.key));
   return [
-    ...automations.filter((r) => r.mine && r.conversationId === conversationId).map((r) => ({ key: r.key, name: r.name, state: r.state })),
-    ...actions.map((a) => ({ key: `action:${a.id}`, name: (a.card as ProposalCard).title || 'Done in this chat', state: a.status === 'done' || a.status === 'failed' ? ('finished' as const) : ('active' as const) })),
+    ...[...made, ...touched].map((r) => ({ key: r.key, name: r.name, state: r.state })),
+    ...actions
+      .filter((a) => !shown.has(changedKey(a) ?? ''))
+      .map((a) => ({ key: `action:${a.id}`, name: (a.card as ProposalCard).title || 'Done in this chat', state: a.status === 'done' || a.status === 'failed' ? ('finished' as const) : ('active' as const) })),
   ];
 }
 

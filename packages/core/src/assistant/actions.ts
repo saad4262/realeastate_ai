@@ -43,6 +43,7 @@ import { offboardingPreview, OffboardError, removeMember, type OffboardChoice, t
 import { emailAgentInvite, type InviteEmailDeps } from '../team/invite-email';
 import { ASSISTANT_LIMITS, type AssistantWriteTool, type ProposalCard, type ProposalStatus } from './schema';
 import { activateTask, advanceTask, endTask, taskAllowsRun, verifyExecuted } from './task-state';
+import { repliedSinceRun, STOPPED_BY_REPLY } from '../workflows/reply-stop';
 import { assignLead, LeadTriageError, updateLeadStatus } from '../leads/triage-lead';
 import { createManualLead } from '../leads/create-manual-lead';
 import { addOrFillContact } from '../contacts/write-contacts';
@@ -191,7 +192,7 @@ export type FrozenArgs =
   /** ADR 0041 Part C: a workflow as checked on its card (ids resolved); saved active on Approve, or replacing `replaces`. */
   | { tool: 'create_workflow'; automation: AutomationDraft }
   | { tool: 'create_workflow'; name: string; scope: 'mine' | 'agency'; spec: WorkflowSpec; replaces: string | null }
-  | { tool: 'change_workflow'; workflowId: string; change: 'pause' | 'resume' | 'archive' }
+  | { tool: 'change_workflow'; workflowId: string; change: 'pause' | 'stop' | 'resume' | 'archive' }
   /** ADR 0048: the exact words the card showed — saved as a template on Approve. */
   | { tool: 'create_template'; name: string; subject: string; body: string }
   /** ADR 0041 Part A: a library skill added to the person's own, scheduled, and switched on. */
@@ -1141,7 +1142,7 @@ async function schedule(db: Db, actor: Actor, row: RowT, runAt: Date, deps: RunD
   return { outcome: 'scheduled', runAt };
 }
 
-export type ScheduledRunReport = { ran: number; done: number; failed: number; waiting: number };
+export type ScheduledRunReport = { ran: number; done: number; failed: number; waiting: number; stopped: number };
 
 /**
  * The cron tick (Phase E): run every scheduled action that is due, one per
@@ -1163,10 +1164,10 @@ export async function runScheduledActions(
   /** Only this task's steps (ADR 0040: right after its plan is approved). */
   opts: { taskId?: string } = {},
 ): Promise<ScheduledRunReport> {
-  const report: ScheduledRunReport = { ran: 0, done: 0, failed: 0, waiting: 0 };
+  const report: ScheduledRunReport = { ran: 0, done: 0, failed: 0, waiting: 0, stopped: 0 };
   for (let i = 0; i < limit; i++) {
     let row: RowT | null = null;
-    let outcome: { kind: 'done'; ran: Extract<Ran, { ok: true }>; actor: Actor } | { kind: 'failed' } | { kind: 'waiting' } | null;
+    let outcome: { kind: 'done'; ran: Extract<Ran, { ok: true }>; actor: Actor } | { kind: 'failed' } | { kind: 'waiting' } | { kind: 'stopped' } | null;
     try {
       outcome = await db.transaction(async (tx) => {
         // Lock one due row (another tick skips it), then move it on — both in this transaction.
@@ -1199,6 +1200,12 @@ export async function runScheduledActions(
         if (!actor || !can(actor, 'proposed_action:decide', actionResource(row))) {
           await failRow(tx as unknown as Db, actor, row, 'The person who approved this is no longer an active member who may make this change, so it did not run.', now);
           return { kind: 'failed' as const };
+        }
+        // ADR 0103: the person answered since the run began — this step and the rest are cancelled, nothing failed.
+        if (row.origin === 'workflow' && row.taskId && (await repliedSinceRun(tx, row.taskId))) {
+          await tx.update(proposedAction).set({ status: 'cancelled', error: STOPPED_BY_REPLY, finishedAt: now, updatedAt: sql`now()` }).where(eq(proposedAction.id, row.id));
+          await endTask(tx, row.taskId, 'cancelled', now, STOPPED_BY_REPLY);
+          return { kind: 'stopped' as const };
         }
         // A workflow step that reaches a contact needs its skill on NOW, not only when the run was made:
         // a switch turned off during a `wait` stops it (ADR 0069).
@@ -1242,6 +1249,10 @@ export async function runScheduledActions(
     }
     if (outcome.kind === 'failed') {
       report.failed += 1;
+      continue;
+    }
+    if (outcome.kind === 'stopped') {
+      report.stopped += 1;
       continue;
     }
     report.done += 1;

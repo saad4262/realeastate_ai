@@ -104,11 +104,11 @@ export async function cancelRemainingSteps(tx: DbOrTx, taskId: string): Promise<
 }
 
 /** The plan was rejected, cancelled or expired, or the task is cancelled: nothing more of it runs. */
-export async function endTask(tx: DbOrTx, taskId: string, status: 'cancelled' | 'expired', now: Date): Promise<number> {
+export async function endTask(tx: DbOrTx, taskId: string, status: 'cancelled' | 'expired', now: Date, why?: string): Promise<number> {
   const n = await cancelRemainingSteps(tx, taskId);
   await tx
     .update(assistantTask)
-    .set({ status, finishedAt: now, updatedAt: sql`now()` })
+    .set({ status, finishedAt: now, updatedAt: sql`now()`, ...(why ? { error: why } : {}) })
     .where(and(eq(assistantTask.id, taskId), inArray(assistantTask.status, ['proposed', 'active'])));
   return n;
 }

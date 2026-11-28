@@ -18,8 +18,13 @@ describe('the AI Assistant on Overview', () => {
     for (const t of ['add_note', 'set_lead_status', 'schedule_appointment', 'create_contact', 'update_contact', 'create_reminder', 'update_agent', 'remove_agent', 'invite_agent', 'find_agents', 'open_chat']) expect(general, t).toContain(t);
   });
 
-  it('never does a skill’s job: that is the skill’s own assistant', () => {
-    for (const t of ['send_template_email', 'send_email', 'send_template_sms', 'create_template', 'create_automation', 'create_workflow', 'change_workflow', 'create_dashboard', 'update_dashboard', 'create_listing_draft', 'update_listing', 'set_up_skill', 'change_skill', 'switch_skill']) expect(general, t).not.toContain(t);
+  it('builds and manages workflows itself, email and text steps in one (ADR 0105, the user 2026-11-27)', () => {
+    for (const t of ['create_workflow', 'change_workflow', 'find_workflows', 'list_templates']) expect(general, t).toContain(t);
+    expect(CHAT_SCOPE_RULES.general.refusedWorkflowSteps).toBeUndefined();
+  });
+
+  it('never does a skill’s other jobs: that is the skill’s own assistant', () => {
+    for (const t of ['send_template_email', 'send_email', 'send_template_sms', 'create_template', 'create_automation', 'create_dashboard', 'update_dashboard', 'create_listing_draft', 'update_listing', 'set_up_skill', 'change_skill', 'switch_skill']) expect(general, t).not.toContain(t);
   });
 
   it('a multi-step plan here holds only everyday steps', () => {
